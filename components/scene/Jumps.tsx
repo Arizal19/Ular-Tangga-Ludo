@@ -1,11 +1,23 @@
 "use client";
-/** Glowing emerald serpents (drop you down) and silver metallic ladders (lift you up). */
+/**
+ * Glowing emerald serpents (drop you down) and silver metallic ladders (lift you up).
+ *
+ * Performance: static parts are merged across all 16 jumps — every ladder rail and
+ * rung is one mesh, every serpent head / eye pair / fang pair is one mesh each.
+ * Only the serpent bodies stay separate so each keeps its own venom-pulse phase.
+ */
 import { Sparkles } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
-import { JUMPS, type Jump } from "@/lib/board";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { JUMPS } from "@/lib/board";
 import { ladderEnds, snakeCurve } from "@/lib/geometry";
+
+const SNAKES = JUMPS.filter((j) => j.kind === "snake");
+const LADDERS = JUMPS.filter((j) => j.kind === "ladder");
+
+const SCALE_MATERIAL = { color: "#0b2e1b", emissive: "#15803d", metalness: 0.6, roughness: 0.28 } as const;
 
 /** Tube whose radius tapers from head to tail. */
 function taperedTube(curve: THREE.Curve<THREE.Vector3>, segments: number, radius: number) {
@@ -27,98 +39,114 @@ function taperedTube(curve: THREE.Curve<THREE.Vector3>, segments: number, radius
   return geo;
 }
 
-function Serpent({ jump }: { jump: Jump }) {
-  const { body, headPos, headDir, mid } = useMemo(() => {
-    const curve = snakeCurve(jump);
-    const body = taperedTube(curve, 80, 0.15);
-    const headPos = curve.getPointAt(0);
-    const headDir = curve.getTangentAt(0).negate();
-    const mid = curve.getPointAt(0.5);
-    return { body, headPos, headDir, mid };
-  }, [jump]);
+/** World matrix of a serpent head: at the curve start, facing away from the body. */
+function headMatrix(curve: THREE.Curve<THREE.Vector3>) {
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), curve.getTangentAt(0).negate());
+  return new THREE.Matrix4().compose(curve.getPointAt(0), q, new THREE.Vector3(1, 1, 1));
+}
+
+/** Copy of `geo` placed at `local` within the head, then into the world. */
+const place = (geo: THREE.BufferGeometry, head: THREE.Matrix4, local: THREE.Matrix4) =>
+  geo.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(head, local));
+
+function SerpentBody({ geometry, phase }: { geometry: THREE.BufferGeometry; phase: number }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
-  const phase = useMemo(() => Math.random() * 10, []);
   useFrame(({ clock }) => {
     // Venom pulse along the serpent.
     if (mat.current) mat.current.emissiveIntensity = 0.55 + Math.sin(clock.elapsedTime * 2.2 + phase) * 0.3;
   });
-  const headQuat = useMemo(
-    () => new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), headDir),
-    [headDir],
-  );
-
   return (
-    <group>
-      <mesh geometry={body} castShadow>
-        <meshStandardMaterial ref={mat} color="#0b2e1b" emissive="#15803d" emissiveIntensity={0.55} metalness={0.6} roughness={0.28} />
-      </mesh>
-      {/* Head: flattened wedge with venom-yellow eyes and silver fangs. */}
-      <group position={headPos} quaternion={headQuat}>
-        <mesh scale={[1, 0.65, 1.45]} castShadow>
-          <sphereGeometry args={[0.2, 20, 16]} />
-          <meshStandardMaterial color="#0b2e1b" emissive="#15803d" emissiveIntensity={0.5} metalness={0.6} roughness={0.28} />
-        </mesh>
-        {[-1, 1].map((s) => (
-          <mesh key={s} position={[s * 0.085, 0.07, 0.12]}>
-            <sphereGeometry args={[0.032, 10, 10]} />
-            <meshBasicMaterial color="#d9f99d" toneMapped={false} />
-          </mesh>
-        ))}
-        {[-1, 1].map((s) => (
-          <mesh key={`f${s}`} position={[s * 0.05, -0.08, 0.2]} rotation={[Math.PI, 0, 0]}>
-            <coneGeometry args={[0.014, 0.07, 6]} />
-            <meshStandardMaterial color="#f1f5f9" metalness={1} roughness={0.2} />
-          </mesh>
-        ))}
-      </group>
-      <Sparkles position={mid} count={14} scale={[1.2, 0.8, 1.2]} size={2.2} speed={0.4} color="#4ade80" />
-    </group>
-  );
-}
-
-function Rod({ a, b, radius }: { a: THREE.Vector3; b: THREE.Vector3; radius: number }) {
-  const { pos, quat, len } = useMemo(() => {
-    const dir = b.clone().sub(a);
-    return {
-      pos: a.clone().add(b).multiplyScalar(0.5),
-      quat: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()),
-      len: dir.length(),
-    };
-  }, [a, b]);
-  return (
-    <mesh position={pos} quaternion={quat} castShadow>
-      <cylinderGeometry args={[radius, radius, len, 10]} />
-      <meshStandardMaterial color="#e2e8f0" metalness={1} roughness={0.18} envMapIntensity={1.4} />
+    <mesh geometry={geometry} castShadow>
+      <meshStandardMaterial ref={mat} {...SCALE_MATERIAL} emissiveIntensity={0.55} />
     </mesh>
   );
 }
 
-function SilverLadder({ jump }: { jump: Jump }) {
-  const { rails, rungs } = useMemo(() => {
-    const [foot, top] = ladderEnds(jump);
-    const dir = top.clone().sub(foot);
-    const side = new THREE.Vector3(-dir.z, 0, dir.x).normalize().multiplyScalar(0.17);
-    const rails: [THREE.Vector3, THREE.Vector3][] = [
-      [foot.clone().add(side), top.clone().add(side)],
-      [foot.clone().sub(side), top.clone().sub(side)],
-    ];
-    const count = Math.max(4, Math.round(dir.length() / 0.24));
-    const rungs: [THREE.Vector3, THREE.Vector3][] = [];
-    for (let i = 1; i < count; i++) {
-      const p = foot.clone().lerp(top, i / count);
-      rungs.push([p.clone().add(side), p.clone().sub(side)]);
+function Serpents() {
+  const { bodies, heads, eyes, fangs, mids } = useMemo(() => {
+    const headGeo = new THREE.SphereGeometry(0.2, 20, 16);
+    const eyeGeo = new THREE.SphereGeometry(0.032, 10, 10);
+    const fangGeo = new THREE.ConeGeometry(0.014, 0.07, 6);
+    const m = (x: number, y: number, z: number, rx = 0, sx = 1, sy = 1, sz = 1) =>
+      new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(sx, sy, sz));
+
+    const bodies: { geometry: THREE.BufferGeometry; phase: number }[] = [];
+    const heads: THREE.BufferGeometry[] = [];
+    const eyes: THREE.BufferGeometry[] = [];
+    const fangs: THREE.BufferGeometry[] = [];
+    const mids: THREE.Vector3[] = [];
+    for (const jump of SNAKES) {
+      const curve = snakeCurve(jump);
+      bodies.push({ geometry: taperedTube(curve, 80, 0.15), phase: Math.random() * 10 });
+      const head = headMatrix(curve);
+      // Head: flattened wedge with venom-yellow eyes and silver fangs.
+      heads.push(place(headGeo, head, m(0, 0, 0, 0, 1, 0.65, 1.45)));
+      for (const s of [-1, 1]) {
+        eyes.push(place(eyeGeo, head, m(s * 0.085, 0.07, 0.12)));
+        fangs.push(place(fangGeo, head, m(s * 0.05, -0.08, 0.2, Math.PI)));
+      }
+      mids.push(curve.getPointAt(0.5));
     }
-    return { rails, rungs };
-  }, [jump]);
+    return { bodies, heads: mergeGeometries(heads), eyes: mergeGeometries(eyes), fangs: mergeGeometries(fangs), mids };
+  }, []);
+
   return (
     <group>
-      {rails.map(([a, b], i) => (
-        <Rod key={`r${i}`} a={a} b={b} radius={0.05} />
+      {bodies.map((b, i) => (
+        <SerpentBody key={i} geometry={b.geometry} phase={b.phase} />
       ))}
-      {rungs.map(([a, b], i) => (
-        <Rod key={i} a={a} b={b} radius={0.03} />
+      <mesh geometry={heads} castShadow>
+        <meshStandardMaterial {...SCALE_MATERIAL} emissiveIntensity={0.5} />
+      </mesh>
+      <mesh geometry={eyes}>
+        <meshBasicMaterial color="#d9f99d" toneMapped={false} />
+      </mesh>
+      <mesh geometry={fangs}>
+        <meshStandardMaterial color="#f1f5f9" metalness={1} roughness={0.2} />
+      </mesh>
+      {mids.map((p, i) => (
+        <Sparkles key={i} position={p} count={14} scale={[1.2, 0.8, 1.2]} size={2.2} speed={0.4} color="#4ade80" />
       ))}
-      <Sparkles position={rails[0][1].clone().lerp(rails[1][0], 0.5)} count={10} scale={[0.8, 1, 0.8]} size={2} speed={0.5} color="#e2e8f0" />
+    </group>
+  );
+}
+
+/** Cylinder between two points. */
+function rod(a: THREE.Vector3, b: THREE.Vector3, radius: number) {
+  const dir = b.clone().sub(a);
+  const geo = new THREE.CylinderGeometry(radius, radius, dir.length(), 10);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  return geo.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)));
+}
+
+function SilverLadders() {
+  const { geometry, glints } = useMemo(() => {
+    const parts: THREE.BufferGeometry[] = [];
+    const glints: THREE.Vector3[] = [];
+    for (const jump of LADDERS) {
+      const [foot, top] = ladderEnds(jump);
+      const dir = top.clone().sub(foot);
+      const side = new THREE.Vector3(-dir.z, 0, dir.x).normalize().multiplyScalar(0.17);
+      parts.push(rod(foot.clone().add(side), top.clone().add(side), 0.05), rod(foot.clone().sub(side), top.clone().sub(side), 0.05));
+      const count = Math.max(4, Math.round(dir.length() / 0.24));
+      for (let i = 1; i < count; i++) {
+        const p = foot.clone().lerp(top, i / count);
+        parts.push(rod(p.clone().add(side), p.clone().sub(side), 0.03));
+      }
+      glints.push(top.clone().add(side).lerp(foot.clone().sub(side), 0.5));
+    }
+    return { geometry: mergeGeometries(parts), glints };
+  }, []);
+
+  return (
+    <group>
+      <mesh geometry={geometry} castShadow>
+        {/* Polished silver; envMapIntensity kept moderate so bloom doesn't wash the rungs out white. */}
+        <meshStandardMaterial color="#d7dde5" metalness={1} roughness={0.24} envMapIntensity={0.95} />
+      </mesh>
+      {glints.map((p, i) => (
+        <Sparkles key={i} position={p} count={10} scale={[0.8, 1, 0.8]} size={2} speed={0.5} color="#e2e8f0" />
+      ))}
     </group>
   );
 }
@@ -126,7 +154,8 @@ function SilverLadder({ jump }: { jump: Jump }) {
 export function Jumps() {
   return (
     <group>
-      {JUMPS.map((j) => (j.kind === "snake" ? <Serpent key={j.id} jump={j} /> : <SilverLadder key={j.id} jump={j} />))}
+      <Serpents />
+      <SilverLadders />
     </group>
   );
 }

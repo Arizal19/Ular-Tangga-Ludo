@@ -112,7 +112,13 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
   const selectable = new Set(phase === "choosing" && canAct ? moves.map((m) => m.tokenId) : []);
 
   return (
-    <Canvas shadows dpr={[1, 1.75]} camera={{ position: CAMERA_HOME.toArray(), fov: 42, near: 0.1, far: 120 }} gl={{ antialias: true }}>
+    <Canvas shadows dpr={[1, 1.75]} camera={{ position: CAMERA_HOME.toArray(), fov: 42, near: 0.1, far: 120 }} gl={{ antialias: true, powerPreference: "high-performance" }}
+      onCreated={({ gl }) => {
+        // The crystal die's refraction re-renders the scene; half resolution is invisible on a
+        // small, glossy cube but halves that pass's pixel cost.
+        gl.transmissionResolutionScale = 0.5;
+      }}
+    >
       <color attach="background" args={["#020403"]} />
       <fog attach="fog" args={["#020403", 40, 100]} />
       <CameraFit />

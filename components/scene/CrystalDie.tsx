@@ -9,6 +9,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { Vec3 } from "@/lib/board";
 
+const SCALE = new THREE.Vector3(); // reused every frame, no per-frame allocation
+
 /** BoxGeometry face order: +x, −x, +y, −y, +z, −z. Opposite faces sum to 7. */
 const FACE_VALUES = [3, 4, 1, 6, 2, 5];
 
@@ -111,7 +113,7 @@ export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props)
       m.position.y = position[1] + Math.sin(t * 1.6) * 0.15;
     }
     const s = enabled && hovered ? 1.12 : 1;
-    m.scale.lerp(new THREE.Vector3(s, s, s), 0.2);
+    m.scale.lerp(SCALE.set(s, s, s), 0.2);
   });
 
   return (

@@ -25,7 +25,8 @@ export function BloomEffect(props: { strength?: number; radius?: number; thresho
   return software ? null : <BloomComposer {...props} />;
 }
 
-function BloomComposer({ strength = 0.75, radius = 0.55, threshold = 0.8 }) {
+// Threshold 0.9: only true emissive glows bloom; lit silver and tile tops stay crisp.
+function BloomComposer({ strength = 0.7, radius = 0.5, threshold = 0.9 }) {
   const { gl, scene, camera, size } = useThree();
 
   const composer = useMemo(() => {

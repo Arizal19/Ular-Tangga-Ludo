@@ -4,10 +4,11 @@
  * ring, silver edge lines, rune numbers, Protego markers, the four corner
  * dungeon bases and the floating summit crest.
  */
-import { Edges, RoundedBox } from "@react-three/drei";
+import { Edges, Line, RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BASE_CENTER,
   GRID,
@@ -26,14 +27,15 @@ import {
 import { SEAT_THEME } from "@/lib/theme";
 import { Crest } from "./Crest";
 
-/** Draw a tile face: emerald or obsidian field, silver numerals, optional seat/Protego mark. */
-function makeTileTexture(id: TileId): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+/** Draw one tile face into the atlas cell at (ox, oy): emerald or obsidian field, silver numerals, seat/Protego mark. */
+function drawTileFace(ctx: CanvasRenderingContext2D, id: TileId, ox: number, oy: number, size: number) {
   const [r, c] = [Math.floor(id / GRID), id % GRID];
   const emerald = (r + c) % 2 === 0;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.beginPath();
+  ctx.rect(0, 0, size, size);
+  ctx.clip();
 
   const grad = ctx.createLinearGradient(0, 0, size, size);
   if (emerald) {
@@ -79,31 +81,74 @@ function makeTileTexture(id: TileId): THREE.CanvasTexture {
     ctx.font = "bold 34px Cinzel, Georgia, serif";
     ctx.fillText("PROTEGO", size / 2, size - 38);
   }
+  ctx.restore();
+}
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
+const CELL = 256; // same per-tile resolution as before, now one 2560² atlas instead of 100 textures
+
+/**
+ * All 100 tiles as two merged meshes (stone sides + numbered tops) and one
+ * merged silver outline: ~3 draw calls instead of ~200, identical look.
+ */
+function Tiles() {
+  const { sides, tops, topMaterial, outline } = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = CELL * GRID;
+    const ctx = canvas.getContext("2d")!;
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 8;
+
+    const sideGeos: THREE.BufferGeometry[] = [];
+    const topGeos: THREE.BufferGeometry[] = [];
+    const outlinePts: number[] = [];
+    const w = TILE_SIZE * 0.97;
+
+    for (let id = 0; id < TILE_COUNT; id++) {
+      const [r, c] = [Math.floor(id / GRID), id % GRID];
+      drawTileFace(ctx, id, c * CELL, r * CELL, CELL);
+      const [x, , z] = tilePosition(id);
+      const h = tileTopY(id);
+
+      // Box without its top face (group 2 = +y), the plane below replaces it.
+      const box = new THREE.BoxGeometry(w, h, w).translate(x, h / 2, z);
+      const top = box.groups[2];
+      const index = Array.from(box.index!.array);
+      index.splice(top.start, top.count);
+      box.setIndex(index);
+      box.clearGroups();
+      sideGeos.push(box);
+
+      // Top face mapped to this tile's atlas cell (canvas row r ↔ v from the top).
+      const plane = new THREE.PlaneGeometry(w, w).rotateX(-Math.PI / 2).translate(x, h, z);
+      const uv = plane.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (c + uv.getX(i)) / GRID, 1 - (r + 1 - uv.getY(i)) / GRID);
+      topGeos.push(plane);
+
+      const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, w), 20).translate(x, h / 2, z);
+      outlinePts.push(...(edges.attributes.position.array as Float32Array));
+      edges.dispose();
+    }
+    map.needsUpdate = true;
+
+    return {
+      sides: mergeGeometries(sideGeos),
+      tops: mergeGeometries(topGeos),
+      topMaterial: new THREE.MeshPhysicalMaterial({ map, roughness: 0.38, metalness: 0.1, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
+      outline: outlinePts,
+    };
+  }, []);
+
+  return (
+    <group>
+      <mesh geometry={sides} material={SIDE_MATERIAL} castShadow receiveShadow />
+      <mesh geometry={tops} material={topMaterial} castShadow receiveShadow />
+      <Line points={outline} segments color="#aeb8c4" lineWidth={1} />
+    </group>
+  );
 }
 
 const SIDE_MATERIAL = new THREE.MeshStandardMaterial({ color: "#0c1210", roughness: 0.55, metalness: 0.35 });
-
-function Tile({ id }: { id: TileId }) {
-  const [x, , z] = tilePosition(id);
-  const height = tileTopY(id);
-  const top = useMemo(() => {
-    const map = makeTileTexture(id);
-    return new THREE.MeshPhysicalMaterial({ map, roughness: 0.38, metalness: 0.1, clearcoat: 0.45, clearcoatRoughness: 0.3 });
-  }, [id]);
-  // Box material order: +x, −x, +y (top), −y, +z, −z.
-  const materials = useMemo(() => [SIDE_MATERIAL, SIDE_MATERIAL, top, SIDE_MATERIAL, SIDE_MATERIAL, SIDE_MATERIAL], [top]);
-  return (
-    <mesh position={[x, height / 2, z]} material={materials} castShadow receiveShadow>
-      <boxGeometry args={[TILE_SIZE * 0.97, height, TILE_SIZE * 0.97]} />
-      <Edges color="#aeb8c4" threshold={20} />
-    </mesh>
-  );
-}
 
 /** Pulsing emerald rings over tiles a human player can move to. */
 export function TileHighlights({ tiles }: { tiles: TileId[] }) {
@@ -137,8 +182,9 @@ function BaseZone({ seat, active, current }: { seat: Seat; active: boolean; curr
     const m = ring.current.material as THREE.MeshBasicMaterial;
     m.opacity = current ? 0.65 + Math.sin(clock.elapsedTime * 4) * 0.35 : active ? 0.45 : 0.08;
   });
-  // Crest stands on the outer edge, facing the board centre.
-  const yaw = Math.atan2(-x, -z);
+  // Crest lies flat on the outer corner, top toward −z so it reads upright from the default camera
+  // (standing up it looked like a thin stick when seen from behind).
+  const outward = new THREE.Vector2(x, z).normalize();
   return (
     <group position={[x, 0, z]}>
       <RoundedBox args={[2.5, y * 2, 2.5]} radius={0.08} position={[0, y, 0]} receiveShadow castShadow>
@@ -148,8 +194,8 @@ function BaseZone({ seat, active, current }: { seat: Seat; active: boolean; curr
         <ringGeometry args={[1.02, 1.14, 64]} />
         <meshBasicMaterial color={color} toneMapped={false} transparent />
       </mesh>
-      <group position={[-Math.sin(yaw) * 0.95, 0.85, -Math.cos(yaw) * 0.95]} rotation={[0, yaw, 0]}>
-        <Crest size={0.55} glow={active ? 0.9 : 0.1} />
+      <group position={[outward.x * 0.78, y * 2 + 0.02, outward.y * 0.78]} rotation={[-Math.PI / 2, 0, 0]}>
+        <Crest size={0.42} glow={active ? 0.9 : 0.1} />
       </group>
     </group>
   );
@@ -165,14 +211,13 @@ function SummitCrest() {
   });
   return (
     <group ref={g}>
-      <Crest size={0.7} glow={1.4} />
-      <pointLight color="#34d399" intensity={6} distance={6} />
+      <Crest size={0.7} glow={0.75} />
+      <pointLight color="#34d399" intensity={2.5} distance={4} />
     </group>
   );
 }
 
 export function Board({ activeSeats, currentSeat }: { activeSeats: Seat[]; currentSeat: Seat | null }) {
-  const ids = useMemo(() => Array.from({ length: TILE_COUNT }, (_, i) => i), []);
   const half = (GRID * TILE_SIZE) / 2;
   return (
     <group>
@@ -187,9 +232,7 @@ export function Board({ activeSeats, currentSeat }: { activeSeats: Seat[]; curre
         <ringGeometry args={[half * 1.54, half * 1.58, 4, 1, Math.PI / 4]} />
         <meshBasicMaterial color="#10b981" toneMapped={false} transparent opacity={0.5} />
       </mesh>
-      {ids.map((id) => (
-        <Tile key={id} id={id} />
-      ))}
+      <Tiles />
       {SEATS.map((s) => (
         <BaseZone key={s} seat={s} active={activeSeats.includes(s)} current={currentSeat === s} />
       ))}
