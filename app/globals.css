@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+/* Slytherin palette: obsidian stone, polished emerald, premium silver. */
+@theme {
+  --color-obsidian: #050807;
+  --color-obsidian-800: #0b100e;
+  --color-emerald-glow: #34d399;
+  --color-silver: #d9dee6;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-body: "Cormorant Garamond", Georgia, serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: #020403;
+  color: #d9dee6;
+  overscroll-behavior: none;
+}
+
+/* Thin silver scrollbar for the spell log */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(217, 222, 230, 0.25) transparent;
+}
+
+select option {
+  background: #0b100e;
+}
