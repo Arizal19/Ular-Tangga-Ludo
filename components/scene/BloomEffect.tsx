@@ -16,7 +16,7 @@ export function isSoftwareRenderer(gl: THREE.WebGLRenderer): boolean {
   const ctx = gl.getContext();
   const info = ctx.getExtension("WEBGL_debug_renderer_info");
   const name = String(info ? ctx.getParameter(info.UNMASKED_RENDERER_WEBGL) : ctx.getParameter(ctx.RENDERER));
-  return /swiftshader|llvmpipe|software/i.test(name);
+  return /swiftshader|llvmpipe|software|basic render|warp/i.test(name);
 }
 
 export function BloomEffect(props: { strength?: number; radius?: number; threshold?: number }) {
