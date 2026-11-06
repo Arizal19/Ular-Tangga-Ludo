@@ -26,6 +26,7 @@ export default function Game() {
   const [remoteLobby, setRemoteLobby] = useState<PlayerConfig[] | null>(null);
   const [initialRoom] = useState(() => new URLSearchParams(window.location.search).get("room") ?? "");
   // Opening motion graphic (once per session). A partner opening an invite link skips it to join fast.
+  const [noGpu, setNoGpu] = useState(false);
   const [introDone, setIntroDone] = useState(() => !!new URLSearchParams(window.location.search).get("room"));
 
   // Refs let network callbacks see the latest engine/role without re-subscribing.
@@ -163,8 +164,21 @@ export default function Game() {
           onAnimationDone={isGuest ? noop : engine.onAnimationDone}
           onSfx={sfx.play}
           canAct={canAct}
+          onSoftwareRenderer={() => setNoGpu(true)}
         />
       </div>
+      {noGpu && (
+        <div className="absolute inset-x-3 top-[max(4.5rem,env(safe-area-inset-top))] z-40 mx-auto max-w-md rounded-xl border border-amber-300/40 bg-black/85 p-3 text-xs text-amber-100 backdrop-blur">
+          <p className="font-semibold">Browser ini tidak memakai GPU, jadi game akan patah-patah.</p>
+          <p className="mt-1 text-amber-100/80">
+            Chrome: Settings → System → aktifkan &quot;Use graphics acceleration when available&quot;, lalu Relaunch. Laptop: colokkan charger dan pilih mode
+            High performance.
+          </p>
+          <button className="mt-2 underline" onClick={() => setNoGpu(false)}>
+            Tutup
+          </button>
+        </div>
+      )}
       {/* Vignette: candle-lit dungeon edges */}
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(0,0,0,0.75)_100%)]" />
       {view.game ? (

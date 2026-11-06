@@ -12,7 +12,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 /** Software rasterisers (SwiftShader, llvmpipe) render the bloom chain black; skip it there. */
-function isSoftwareRenderer(gl: THREE.WebGLRenderer): boolean {
+export function isSoftwareRenderer(gl: THREE.WebGLRenderer): boolean {
   const ctx = gl.getContext();
   const info = ctx.getExtension("WEBGL_debug_renderer_info");
   const name = String(info ? ctx.getParameter(info.UNMASKED_RENDERER_WEBGL) : ctx.getParameter(ctx.RENDERER));
@@ -35,14 +35,15 @@ function BloomComposer({ strength = 0.7, radius = 0.5, threshold = 0.9 }) {
     // Only when the GPU can multisample half-float targets; otherwise plain target, never a black frame.
     const ctx = gl.getContext();
     const msaa = gl.capabilities.isWebGL2 && (ctx.getExtension("EXT_color_buffer_float") || ctx.getExtension("EXT_color_buffer_half_float"));
-    const target = new THREE.WebGLRenderTarget(size.width, size.height, { type: THREE.HalfFloatType, samples: msaa ? 4 : 0 });
+    // At dpr >= 1.5 the pixels are already fine enough; 4x MSAA there costs mobile GPUs a lot for no visible gain.
+    const target = new THREE.WebGLRenderTarget(size.width, size.height, { type: THREE.HalfFloatType, samples: msaa && dpr < 1.5 ? 4 : 0 });
     const c = new EffectComposer(gl, target);
     c.addPass(new RenderPass(scene, camera));
     c.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), strength, radius, threshold));
     c.addPass(new OutputPass()); // tone mapping + sRGB
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, strength, radius, threshold]);
+  }, [gl, scene, camera, strength, radius, threshold, dpr < 1.5]);
 
   useEffect(() => {
     composer.setPixelRatio(dpr);

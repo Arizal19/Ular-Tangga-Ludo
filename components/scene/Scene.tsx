@@ -2,14 +2,14 @@
 /** The R3F canvas: camera, moody dungeon lighting, board, serpents, tokens, die, bloom. */
 import { Environment, Lightformer, OrbitControls, PerformanceMonitor, Sparkles } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { type Seat, type Vec3, stackOffset, tileAt } from "@/lib/board";
 import type { GameState, Move } from "@/lib/rules";
 import { tokenTile } from "@/lib/rules";
 import { type DiceState, type Phase, type TokenAnimation, restPosition } from "@/hooks/useGameEngine";
 import type { SfxName } from "@/hooks/useSfx";
-import { BloomEffect } from "./BloomEffect";
+import { BloomEffect, isSoftwareRenderer } from "./BloomEffect";
 import { Board, TileHighlights } from "./Board";
 import { CrystalDie } from "./CrystalDie";
 import { Jumps } from "./Jumps";
@@ -100,8 +100,50 @@ function CameraRig({ playing }: { playing: boolean }) {
   return null;
 }
 
+const CANDLE_CLUSTER: [number, number, number][] = [
+  [-10.2, -2.6, 0.6], [-9.0, -3.9, 0.5], [-10.1, 4.9, 0.95], [-8.8, 4.8, 0.45],
+  [9.9, -3.9, 0.55], [8.7, -2.5, 0.4], [10.3, 3.5, 0.7], [9.0, 3.6, 0.5],
+  [-6.5, -9.6, 0.8], [6.8, -9.4, 0.6], [-6.2, 9.8, 0.7], [6.6, 9.5, 0.9],
+];
+
+/** Carved stone table top under the board: a soft emerald-lit vignette instead of a flat floor. */
+function StoneTable() {
+  const map = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 512;
+    const ctx = c.getContext("2d")!;
+    const g = ctx.createRadialGradient(256, 256, 40, 256, 256, 256);
+    g.addColorStop(0, "#1f3a2e");
+    g.addColorStop(0.55, "#132219");
+    g.addColorStop(1, "#070d0a");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 1800; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.035})`;
+      ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+    }
+    // Faint rune circle
+    ctx.strokeStyle = "rgba(110,231,183,0.18)";
+    ctx.lineWidth = 3;
+    for (const r of [214, 226]) {
+      ctx.beginPath();
+      ctx.arc(256, 256, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }, []);
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.245, 0]} receiveShadow>
+      <circleGeometry args={[15, 96]} />
+      <meshStandardMaterial map={map} metalness={0.25} roughness={0.6} />
+    </mesh>
+  );
+}
+
 /** Wax candle with a flickering flame light (nod to the candle-lit table art). */
-function Candle({ position, height = 0.9 }: { position: Vec3; height?: number }) {
+function Candle({ position, height = 0.9, lit = true }: { position: Vec3; height?: number; lit?: boolean }) {
   const light = useRef<THREE.PointLight>(null);
   const flame = useRef<THREE.Mesh>(null);
   const seed = useMemo(() => Math.random() * 100, []);
@@ -122,7 +164,7 @@ function Candle({ position, height = 0.9 }: { position: Vec3; height?: number })
         <coneGeometry args={[0.06, 0.22, 12]} />
         <meshBasicMaterial color="#ffcf7a" toneMapped={false} />
       </mesh>
-      <pointLight ref={light} position={[0, height + 0.3, 0]} color="#ffb35c" intensity={6.5} distance={8} decay={2} />
+      {lit && <pointLight ref={light} position={[0, height + 0.3, 0]} color="#ffb35c" intensity={6.5} distance={8} decay={2} />}
     </group>
   );
 }
@@ -139,11 +181,16 @@ export interface SceneProps {
   onSfx: (s: SfxName) => void;
   /** This device controls the current turn (local human, or our seat online). */
   canAct: boolean;
+  /** Browser has no GPU acceleration (e.g. Chrome's "graphics acceleration" off): game will stutter. */
+  onSoftwareRenderer?: () => void;
 }
 
-export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx, canAct }: SceneProps) {
+export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx, canAct, onSoftwareRenderer }: SceneProps) {
   // Adaptive resolution: start sharp, drop a notch only while the frame rate sags, climb back when it recovers.
-  const [dpr, setDpr] = useState(2);
+  // Pixel budget: Android/PC GPUs choke on dpr 2 at large sizes where Apple GPUs don't. Cap total
+  // rendered pixels (~2.2 MP) instead of a fixed dpr, so every screen gets the sharpest it can hold.
+  const dprCap = useMemo(() => Math.min(2, Math.max(1, Math.sqrt(2.2e6 / (window.innerWidth * window.innerHeight)))), []);
+  const [dpr, setDpr] = useState(() => 1 + (dprCap - 1) * 0.75);
   const shadowSize = useMemo(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 1024 : 2048), []);
   const activeSeats: Seat[] = game ? game.players.map((p) => p.seat) : [];
   const current = game ? game.players[game.turn] : null;
@@ -191,11 +238,15 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         // instead of leaving a black canvas.
         const canvas = gl.domElement;
         canvas.addEventListener("webglcontextlost", (e) => e.preventDefault());
+        if (isSoftwareRenderer(gl)) {
+          gl.setPixelRatio(1);
+          onSoftwareRenderer?.();
+        }
       }}
     >
       <PerformanceMonitor
         flipflops={3}
-        onChange={({ factor }) => setDpr(Math.min(2, Math.max(1, Math.round((1 + factor) * 4) / 4)))}
+        onChange={({ factor }) => setDpr(Math.round((1 + (dprCap - 1) * factor) * 4) / 4)}
       />
       <color attach="background" args={["#05140d"]} />
       <fog attach="fog" args={["#05140d", 45, 110]} />
@@ -235,15 +286,22 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       <Candle position={[-9.4, -0.25, 4.2]} height={0.7} />
       <Candle position={[9.3, -0.25, -3.2]} height={0.9} />
       <Candle position={[9.6, -0.25, 2.8]} height={1.2} />
+      {/* Candle clusters like the opening clip; only the four above cast light (lights are the costly part). */}
+      {CANDLE_CLUSTER.map(([x, z, h], i) => (
+        <Candle key={i} position={[x, -0.25, z]} height={h} lit={false} />
+      ))}
+      <StoneTable />
 
       <Board activeSeats={activeSeats} currentSeat={current?.seat ?? null} />
       <Jumps />
       <TileHighlights tiles={highlightTiles} />
 
+      <Suspense fallback={null}>
       {game?.tokens.map((t) => (
         <Token
           key={t.id}
           seat={t.seat}
+          character={game.players.find((p) => p.seat === t.seat)?.character ?? "draco"}
           rest={rests.get(t.id)!}
           animation={animation?.tokenId === t.id ? animation : null}
           selectable={selectable.has(t.id)}
@@ -252,6 +310,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
           onDone={onAnimationDone}
         />
       ))}
+      </Suspense>
 
       <CrystalDie
         position={DIE_POSITION}

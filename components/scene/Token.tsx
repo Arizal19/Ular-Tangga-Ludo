@@ -1,11 +1,11 @@
 "use client";
 /**
- * A player's serpent token: house-coloured pedestal, coiled emerald snake and a
- * small Slytherin crest. Plays waypoint animations tile by tile (hop arcs,
+ * A player's miniature: house-coloured pedestal, robed wizard figure and a floating
+ * portrait medallion of the chosen character that always faces the camera. Plays waypoint animations tile by tile (hop arcs,
  * snake slides, ladder climbs) with a glowing spell trail, and otherwise glides
  * to its rest spot (e.g. flying back to base after being captured).
  */
-import { Trail } from "@react-three/drei";
+import { Billboard, Trail, useTexture } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -13,13 +13,20 @@ import type { Seat, Vec3 } from "@/lib/board";
 import { SEAT_THEME } from "@/lib/theme";
 import type { TokenAnimation, Waypoint } from "@/hooks/useGameEngine";
 import type { SfxName } from "@/hooks/useSfx";
-import { Crest } from "./Crest";
+
+/** Robe silhouette (radius, height), shared by every figure. */
+const ROBE = new THREE.LatheGeometry(
+  [[0.2, 0], [0.19, 0.05], [0.15, 0.2], [0.11, 0.36], [0.085, 0.46], [0.05, 0.5], [0, 0.5]].map(([x, y]) => new THREE.Vector2(x, y)),
+  28,
+);
 
 const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
 const TRAIL_COLOR = { walk: "#6ee7b7", ladder: "#e2e8f0", snake: "#22c55e" } as const;
 
 interface Props {
   seat: Seat;
+  /** Portrait key: /characters/<key>.jpg */
+  character: string;
   rest: Vec3;
   animation: TokenAnimation | null;
   selectable: boolean;
@@ -28,7 +35,7 @@ interface Props {
   onDone: (animationId: number) => void;
 }
 
-export function Token({ seat, rest, animation, selectable, onSelect, onWaypointSfx, onDone }: Props) {
+export function Token({ seat, character, rest, animation, selectable, onSelect, onWaypointSfx, onDone }: Props) {
   const group = useRef<THREE.Group>(null!);
   const body = useRef<THREE.Group>(null!);
   const ring = useRef<THREE.Mesh>(null!);
@@ -37,6 +44,8 @@ export function Token({ seat, rest, animation, selectable, onSelect, onWaypointS
   const callbacks = useRef({ onWaypointSfx, onDone });
   const [hovered, setHovered] = useState(false);
   const { color, glow } = SEAT_THEME[seat];
+  const portrait = useTexture(`/characters/${character}.jpg`);
+  portrait.colorSpace = THREE.SRGBColorSpace;
 
   useEffect(() => {
     callbacks.current = { onWaypointSfx, onDone };
@@ -89,9 +98,8 @@ export function Token({ seat, rest, animation, selectable, onSelect, onWaypointS
       const lift = Math.min(2.2, Math.hypot(dx, dz) * 0.45);
       g.position.y += (t.y + lift - g.position.y) * f;
     }
-    // Idle breathing + slow crest turn; selectable tokens pulse their ring.
+    // Idle breathing; selectable tokens pulse their ring.
     body.current.position.y = Math.sin(clock.elapsedTime * 2 + seat) * 0.02;
-    body.current.rotation.y += dt * 0.6;
     const pulse = selectable ? 1 + Math.sin(clock.elapsedTime * 6) * 0.15 : 1;
     ring.current.scale.setScalar(pulse * (hovered && selectable ? 1.25 : 1));
     (ring.current.material as THREE.MeshBasicMaterial).opacity = selectable ? 0.95 : 0.35;
@@ -126,14 +134,30 @@ export function Token({ seat, rest, animation, selectable, onSelect, onWaypointS
           <cylinderGeometry args={[0.22, 0.25, 0.1, 28]} />
           <meshStandardMaterial color={color} metalness={0.85} roughness={0.25} emissive={color} emissiveIntensity={0.35} />
         </mesh>
-        {/* Coiled serpent */}
-        <mesh position={[0, 0.14, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-          <torusGeometry args={[0.15, 0.045, 12, 32]} />
-          <meshStandardMaterial color="#0f5132" emissive="#22c55e" emissiveIntensity={0.5} metalness={0.5} roughness={0.3} />
+        {/* Robed figure */}
+        <mesh geometry={ROBE} position={[0, 0.1, 0]} castShadow>
+          <meshStandardMaterial color="#141b18" roughness={0.65} metalness={0.15} />
         </mesh>
-        <group position={[0, 0.42, 0]}>
-          <Crest size={0.34} glow={0.9} />
-        </group>
+        {/* House scarf + head */}
+        <mesh position={[0, 0.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.07, 0.024, 10, 24]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.4} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, 0.66, 0]} castShadow>
+          <sphereGeometry args={[0.085, 20, 16]} />
+          <meshStandardMaterial color="#d9c2a5" roughness={0.6} />
+        </mesh>
+        {/* Portrait medallion: who this piece is, readable from any camera angle */}
+        <Billboard position={[0, 1.12, 0]}>
+          <mesh>
+            <circleGeometry args={[0.3, 40]} />
+            <meshBasicMaterial map={portrait} toneMapped={false} />
+          </mesh>
+          <mesh position={[0, 0, -0.001]}>
+            <ringGeometry args={[0.295, 0.35, 40]} />
+            <meshBasicMaterial color={glow} toneMapped={false} />
+          </mesh>
+        </Billboard>
       </group>
       {animation && (
         <Trail width={1.6} length={5} color={TRAIL_COLOR[animation.trail]} attenuation={(w) => w * w}>
