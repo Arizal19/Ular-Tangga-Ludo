@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "A 3D Slytherin-themed hybrid of Ludo and Snakes & Ladders on an emerald ziggurat.",
 };
 
-export const viewport: Viewport = { themeColor: "#020403" };
+export const viewport: Viewport = { themeColor: "#020403", viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

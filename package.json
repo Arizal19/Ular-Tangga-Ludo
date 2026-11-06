@@ -2,7 +2,7 @@
   "name": "slytherin-ascent",
   "version": "1.0.0",
   "private": true,
-  "description": "Slytherin Ascent \u2014 a 3D hybrid of Ludo and Snakes & Ladders on an emerald ziggurat.",
+  "description": "Slytherin Ascent — a 3D hybrid of Ludo and Snakes & Ladders on an emerald ziggurat.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,6 +13,7 @@
     "@react-three/drei": "10.7.9",
     "@react-three/fiber": "9.8.2",
     "next": "16.4.5",
+    "peerjs": "1.5.5",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "0.187.0"

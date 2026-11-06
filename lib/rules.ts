@@ -34,6 +34,8 @@ export interface PlayerConfig {
   /** Portrait key in /public/characters/<character>.jpg */
   character: string;
   isAI: boolean;
+  /** Online play: which device controls this human seat. Omitted = this device. */
+  owner?: "host" | "guest";
 }
 
 export interface TokenState {

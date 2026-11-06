@@ -75,16 +75,23 @@ interface HudProps {
   onToggleMute: () => void;
   onRestart: () => void;
   onNewSetup: () => void;
+  /** This device controls the current turn. */
+  canAct: boolean;
+  /** Online partner device: the host owns restart/lobby. */
+  isGuest: boolean;
+  /** Online room status pill. */
+  netBadge?: React.ReactNode;
 }
 
-export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToken, onToggleMute, onRestart, onNewSetup }: HudProps) {
+export function Hud(props: HudProps) {
+  const { game, phase, dice, moves, log, muted, onRoll, onSelectToken, onToggleMute, onRestart, onNewSetup, canAct, isGuest, netBadge } = props;
   const [showRules, setShowRules] = useState(false);
   const current = game.players[game.turn];
   const theme = SEAT_THEME[current.seat];
   const winner = game.winner !== null ? game.players.find((p) => p.seat === game.winner)! : null;
 
   let action: React.ReactNode;
-  if (phase === "await-roll" && !current.isAI) {
+  if (phase === "await-roll" && canAct) {
     action = (
       <button
         onClick={onRoll}
@@ -93,7 +100,7 @@ export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToke
         Cast the Die <span className="ml-1 text-xs font-normal opacity-70 max-md:hidden">(Space)</span>
       </button>
     );
-  } else if (phase === "choosing") {
+  } else if (phase === "choosing" && canAct) {
     action = (
       <div className="flex flex-col items-center gap-2">
         <p className="font-display text-sm text-silver">Choose a serpent to move {dice.value}:</p>
@@ -120,26 +127,35 @@ export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToke
     );
   } else {
     const text =
-      phase === "rolling" ? "The crystal tumbles…" : phase === "moving" ? "The serpent slithers…" : `${current.name} is plotting…`;
+      phase === "rolling"
+        ? "The crystal tumbles…"
+        : phase === "moving"
+          ? "The serpent slithers…"
+          : phase === "choosing"
+            ? `${current.name} is choosing a serpent…`
+            : current.isAI
+              ? `${current.name} is plotting…`
+              : `Waiting for ${current.name} to cast the die…`;
     action = <p className="font-display text-base italic text-silver/80">{text}</p>;
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col p-3 sm:p-4">
+    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col px-[max(0.75rem,env(safe-area-inset-left))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
       {/* Title + controls */}
       <header className="pointer-events-auto flex items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-bold text-silver drop-shadow-[0_0_10px_rgba(52,211,153,0.7)] sm:text-2xl">Slytherin Ascent</h1>
-          <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-glow/70">Ludo × Snakes &amp; Ladders</p>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-glow/70 max-sm:hidden">Ludo × Snakes &amp; Ladders</p>
+          {netBadge}
         </div>
-        <nav className="flex gap-1.5 text-xs" aria-label="Game controls">
+        <nav className="flex flex-wrap justify-end gap-1.5 text-xs" aria-label="Game controls">
           {[
             { label: muted ? "Unmute" : "Mute", onClick: onToggleMute },
             { label: "Rules", onClick: () => setShowRules((v) => !v) },
-            { label: "Restart", onClick: onRestart },
-            { label: "Lobby", onClick: onNewSetup },
+            ...(isGuest ? [] : [{ label: "Restart", onClick: onRestart }]),
+            { label: isGuest ? "Leave" : "Lobby", onClick: onNewSetup },
           ].map((b) => (
-            <button key={b.label} onClick={b.onClick} className="rounded-md border border-silver/25 bg-black/50 px-2.5 py-1.5 font-display text-silver/80 backdrop-blur hover:border-emerald-glow hover:text-silver">
+            <button key={b.label} onClick={b.onClick} className="min-h-9 rounded-md border border-silver/25 bg-black/50 px-2.5 py-1.5 font-display text-silver/80 backdrop-blur hover:border-emerald-glow hover:text-silver">
               {b.label}
             </button>
           ))}
@@ -160,6 +176,29 @@ export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToke
         </aside>
       )}
 
+      {/* Compact roster for phones */}
+      <ul className="pointer-events-auto mt-2 flex justify-center gap-2 md:hidden" aria-label="Players">
+        {game.players.map((p) => {
+          const th = SEAT_THEME[p.seat];
+          const active = p.seat === current.seat && !winner;
+          return (
+            <li
+              key={p.seat}
+              className={`flex items-center gap-1.5 rounded-full border bg-black/60 py-0.5 pl-0.5 pr-2 backdrop-blur ${active ? "" : "opacity-70"}`}
+              style={{ borderColor: active ? th.color : "rgba(217,222,230,0.15)", boxShadow: active ? `0 0 14px ${th.color}88` : undefined }}
+            >
+              <Portrait character={p.character} color={th.color} size={26} />
+              <span className="text-[10px] leading-tight text-silver/80">
+                {game.tokens
+                  .filter((t) => t.seat === p.seat)
+                  .map((t) => (t.progress === 0 ? "—" : t.progress >= FINISH ? "★" : t.progress))
+                  .join(" · ")}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
       <div className="flex min-h-0 flex-1 justify-end gap-3 pt-3">
         {/* Roster + log */}
         <div className="pointer-events-auto flex max-h-full w-full max-w-[19rem] flex-col gap-2 max-md:hidden">
@@ -176,7 +215,7 @@ export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToke
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 font-display text-sm text-silver">
                     <span className="truncate">{p.name}</span>
-                    <span className="rounded bg-white/10 px-1.5 text-[10px] uppercase tracking-wider text-silver/60">{p.isAI ? "AI" : "Human"}</span>
+                    <span className="rounded bg-white/10 px-1.5 text-[10px] uppercase tracking-wider text-silver/60">{p.isAI ? "AI" : p.owner === "guest" ? "Partner" : "Human"}</span>
                   </p>
                   <p className="text-[10px] uppercase tracking-widest" style={{ color: th.color }}>{th.house}</p>
                   <div className="mt-1 flex gap-1.5">
@@ -212,18 +251,22 @@ export function Hud({ game, phase, dice, moves, log, muted, onRoll, onSelectToke
 
       {winner && (
         <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-sm">
-          <div className="rounded-2xl border border-emerald-glow/60 bg-gradient-to-b from-[#0b1a13] to-obsidian p-8 text-center shadow-[0_0_80px_rgba(52,211,153,0.4)]">
+          <div className="mx-4 rounded-2xl border border-emerald-glow/60 bg-gradient-to-b from-[#0b1a13] to-obsidian p-6 text-center sm:p-8 shadow-[0_0_80px_rgba(52,211,153,0.4)]">
             <div className="flex justify-center">
               <Portrait character={winner.character} color={SEAT_THEME[winner.seat].color} size={96} />
             </div>
             <p className="mt-4 font-display text-xs uppercase tracking-[0.4em] text-emerald-glow">Victory</p>
-            <h2 className="mt-1 font-display text-3xl font-bold text-silver">{winner.name} conquers the Ascent</h2>
+            <h2 className="mt-1 font-display text-2xl font-bold text-silver sm:text-3xl">{winner.name} conquers the Ascent</h2>
             <div className="mt-6 flex justify-center gap-3">
+              {isGuest ? (
+                <p className="text-sm text-silver/70">The host can start a new game.</p>
+              ) : (
               <button onClick={onRestart} className="rounded-lg border border-emerald-glow bg-emerald-800 px-5 py-2 font-display text-white hover:brightness-110">
                 Play again
               </button>
+              )}
               <button onClick={onNewSetup} className="rounded-lg border border-silver/30 px-5 py-2 font-display text-silver hover:border-silver">
-                Lobby
+                {isGuest ? "Leave" : "Lobby"}
               </button>
             </div>
           </div>

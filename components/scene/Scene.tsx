@@ -72,14 +72,15 @@ export interface SceneProps {
   animation: TokenAnimation | null;
   onRoll: () => void;
   onSelectToken: (id: string) => void;
-  onAnimationDone: () => void;
+  onAnimationDone: (animationId: number) => void;
   onSfx: (s: SfxName) => void;
+  /** This device controls the current turn (local human, or our seat online). */
+  canAct: boolean;
 }
 
-export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx }: SceneProps) {
+export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx, canAct }: SceneProps) {
   const activeSeats: Seat[] = game ? game.players.map((p) => p.seat) : [];
   const current = game ? game.players[game.turn] : null;
-  const humanTurn = !!current && !current.isAI;
 
   // Rest position per token, fanning out tokens that share a tile.
   const rests = useMemo(() => {
@@ -105,13 +106,13 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
   }, [game]);
 
   const highlightTiles = useMemo(() => {
-    if (!game || phase !== "choosing") return [];
+    if (!game || phase !== "choosing" || !canAct) return [];
     return moves.map((m) => tileAt(game.tokens.find((t) => t.id === m.tokenId)!.seat, m.to));
-  }, [game, moves, phase]);
-  const selectable = new Set(phase === "choosing" ? moves.map((m) => m.tokenId) : []);
+  }, [game, moves, phase, canAct]);
+  const selectable = new Set(phase === "choosing" && canAct ? moves.map((m) => m.tokenId) : []);
 
   return (
-    <Canvas shadows dpr={[1, 2]} camera={{ position: CAMERA_HOME.toArray(), fov: 42, near: 0.1, far: 120 }} gl={{ antialias: true }}>
+    <Canvas shadows dpr={[1, 1.75]} camera={{ position: CAMERA_HOME.toArray(), fov: 42, near: 0.1, far: 120 }} gl={{ antialias: true }}>
       <color attach="background" args={["#020403"]} />
       <fog attach="fog" args={["#020403", 40, 100]} />
       <CameraFit />
@@ -172,7 +173,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         position={DIE_POSITION}
         value={dice.value}
         rolling={dice.rolling}
-        enabled={phase === "await-roll" && humanTurn}
+        enabled={phase === "await-roll" && canAct}
         onRoll={onRoll}
       />
 

@@ -4,7 +4,7 @@
  * To swap in recorded sounds later, replace the body of a recipe with
  * `new Audio('/sfx/<name>.mp3').play()`.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type SfxName = "dice" | "step" | "enter" | "ladder" | "snake" | "capture" | "finish" | "win" | "six" | "fizzle";
 
@@ -79,22 +79,54 @@ export function useSfx() {
   const [muted, setMuted] = useState(false);
   const mutedRef = useRef(false);
 
+  const ensureContext = useCallback(() => {
+    if (!ctxRef.current) {
+      ctxRef.current = new AudioContext();
+      masterRef.current = ctxRef.current.createGain();
+      masterRef.current.gain.value = 0.6;
+      masterRef.current.connect(ctxRef.current.destination);
+    }
+    if (ctxRef.current.state !== "running") void ctxRef.current.resume();
+    return ctxRef.current;
+  }, []);
+
+  // iOS/Android only start audio inside a user gesture. Sounds are often fired from
+  // timers (AI turns, the partner's moves), so unlock once on the first tap/key.
+  useEffect(() => {
+    const unlock = () => {
+      try {
+        const ctx = ensureContext();
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, 22050); // silent tick primes the iOS output
+        src.connect(ctx.destination);
+        src.start(0);
+      } catch {
+        return;
+      }
+      events.forEach((e) => window.removeEventListener(e, unlock, true));
+    };
+    const events = ["pointerdown", "touchend", "keydown"] as const;
+    events.forEach((e) => window.addEventListener(e, unlock, true));
+    // Safari suspends audio when the tab is hidden; resume when back.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && ctxRef.current?.state !== "running") void ctxRef.current?.resume();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, unlock, true));
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ensureContext]);
+
   const play = useCallback((name: SfxName) => {
     if (mutedRef.current || typeof window === "undefined") return;
     try {
-      if (!ctxRef.current) {
-        ctxRef.current = new AudioContext();
-        masterRef.current = ctxRef.current.createGain();
-        masterRef.current.gain.value = 0.6;
-        masterRef.current.connect(ctxRef.current.destination);
-      }
-      const ctx = ctxRef.current;
-      if (ctx.state === "suspended") void ctx.resume();
+      const ctx = ensureContext();
       RECIPES[name](ctx, masterRef.current!, ctx.currentTime + 0.01);
     } catch {
       // Audio is decorative; never let it break a turn.
     }
-  }, []);
+  }, [ensureContext]);
 
   const toggleMute = useCallback(() => {
     mutedRef.current = !mutedRef.current;

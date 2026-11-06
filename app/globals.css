@@ -25,6 +25,13 @@ body {
   scrollbar-color: rgba(217, 222, 230, 0.25) transparent;
 }
 
+/* No double-tap zoom delay on buttons (iOS Safari) */
+button,
+[role="radio"],
+[role="tab"] {
+  touch-action: manipulation;
+}
+
 select option {
   background: #0b100e;
 }

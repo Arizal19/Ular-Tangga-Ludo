@@ -38,6 +38,8 @@ export interface Waypoint {
 }
 
 export interface TokenAnimation {
+  /** Unique per move, so a re-sent snapshot never restarts the same animation. */
+  id: number;
   tokenId: string;
   waypoints: Waypoint[];
   /** Kind of magic trail to show while moving. */
@@ -97,6 +99,8 @@ export function useGameEngine(play: (s: SfxName) => void) {
   const rollRef = useRef(0);
   const movesRef = useRef<Move[]>([]);
   const pendingRef = useRef<MoveOutcome | null>(null);
+  const animIdRef = useRef(0);
+  const doneRef = useRef<(id: number) => void>(() => {});
   const logId = useRef(0);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
 
@@ -143,20 +147,22 @@ export function useGameEngine(play: (s: SfxName) => void) {
       setMoves([]);
       movesRef.current = [];
       commitPhase("moving");
-      setAnimation({
-        tokenId: move.tokenId,
-        waypoints: buildWaypoints(outcome, token.seat, token.index),
-        trail: outcome.jump?.kind ?? "walk",
-      });
+      const id = ++animIdRef.current;
+      const waypoints = buildWaypoints(outcome, token.seat, token.index);
+      setAnimation({ id, tokenId: move.tokenId, waypoints, trail: outcome.jump?.kind ?? "walk" });
+      // Fallback: if the tab is hidden (phone locked, app switched) requestAnimationFrame
+      // stops and the token never reports back — commit anyway so the room keeps going.
+      const totalMs = waypoints.reduce((acc, w) => acc + w.duration, 0) * 1000;
+      later(() => doneRef.current(id), totalMs + 2500);
     },
     [],
   );
 
-  /** Called by the Token component when its last waypoint is reached. */
-  const onAnimationDone = useCallback(() => {
+  /** Called by the Token component (or the fallback timer) when animation `id` ends. */
+  const onAnimationDone = useCallback((id: number) => {
     const g = gameRef.current;
     const o = pendingRef.current;
-    if (!g || !o) return;
+    if (!g || !o || id !== animIdRef.current) return; // stale or already committed
     pendingRef.current = null;
     pushLog(describeOutcome(g, o));
     // SFX TRIGGER: takeover boom / victory fanfare after the token settles.
@@ -170,6 +176,9 @@ export function useGameEngine(play: (s: SfxName) => void) {
     }
     advance(nextTurn(o.next, o.extraTurn, rollRef.current === 6));
   }, [advance, play, pushLog]);
+  useEffect(() => {
+    doneRef.current = onAnimationDone;
+  }, [onAnimationDone]);
 
   const afterRoll = useCallback(
     (roll: number) => {

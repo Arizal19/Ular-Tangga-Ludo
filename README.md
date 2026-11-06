@@ -15,6 +15,21 @@ npm run build    # production build
 
 Vercel: push the folder to a Git repo and import it, or run `npx vercel` in this folder. No env vars, no API routes, no external assets (SFX are synthesized, environment lighting is local). Only the Google Fonts stylesheet is fetched at runtime.
 
+## Play together
+
+- **Same Device**: 2–4 seats, each Human or AI. Pass the phone/tablet around.
+- **Online** (two devices, e.g. Android/PC + iPhone/iPad):
+  1. One player taps **Online → Create room**. A 4-letter code appears.
+  2. Tap **Share link** and send it to your partner, or tell them the code.
+  3. The partner opens the link (or **Online → Join** with the code).
+  4. The host marks the partner's seat as **Partner** and taps **Begin the Ascent**.
+
+  The host's device runs the game and the AI; the partner's device mirrors it and can only act on its own turn. If a phone sleeps, open the link again to rejoin mid-game.
+
+  Connection is peer-to-peer (WebRTC via [PeerJS](https://peerjs.com)); no account or server setup. It uses the free public PeerJS broker. To self-host it, run a [`peer`](https://github.com/peers/peerjs-server) server and set `NEXT_PUBLIC_PEER_HOST`, `NEXT_PUBLIC_PEER_PORT`, `NEXT_PUBLIC_PEER_PATH` (and `NEXT_PUBLIC_PEER_SECURE=false` for plain HTTP) in Vercel.
+
+Tips for phones: turn off the iPhone silent switch to hear sound effects; keep the host's screen on during online games.
+
 ## How the hybrid works
 
 The 100 tiles form a **ziggurat** of 5 concentric rings; each inner ring is one layer higher (the "4D height factor").
@@ -44,10 +59,12 @@ components/
   ui/                SetupScreen (lobby), Hud (roster, action bar, log, rules, victory)
 hooks/
   useGameEngine.ts   turn state machine: roll → choose → animate → commit → next turn; AI timing
+  useOnline.ts       PeerJS room: create/join by code, reconnect, message validation
   useSfx.ts          Web Audio spell SFX (dice, step, ladder chime, Parseltongue hiss, Expulso boom…)
 lib/
   board.ts           pure geometry: rings, paths, jumps, safe tiles, world positions
   rules.ts           pure rules: legal moves, resolve move, captures, AI, log narration
+  net.ts             online protocol (host snapshots ⇄ guest intents), seat ownership
   geometry.ts        Three.js curves shared by meshes and token slide/climb animations
   theme.ts           seat colours, character roster (portraits in public/characters)
 ```

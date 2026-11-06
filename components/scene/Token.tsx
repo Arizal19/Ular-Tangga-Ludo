@@ -25,14 +25,14 @@ interface Props {
   selectable: boolean;
   onSelect: () => void;
   onWaypointSfx: (s: SfxName) => void;
-  onDone: () => void;
+  onDone: (animationId: number) => void;
 }
 
 export function Token({ seat, rest, animation, selectable, onSelect, onWaypointSfx, onDone }: Props) {
   const group = useRef<THREE.Group>(null!);
   const body = useRef<THREE.Group>(null!);
   const ring = useRef<THREE.Mesh>(null!);
-  const anim = useRef<{ wps: Waypoint[]; i: number; t: number; from: THREE.Vector3 } | null>(null);
+  const anim = useRef<{ id: number; wps: Waypoint[]; i: number; t: number; from: THREE.Vector3 } | null>(null);
   const target = useRef(new THREE.Vector3());
   const callbacks = useRef({ onWaypointSfx, onDone });
   const [hovered, setHovered] = useState(false);
@@ -48,9 +48,14 @@ export function Token({ seat, rest, animation, selectable, onSelect, onWaypointS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keyed on the animation id: online guests receive fresh copies of the same animation.
+  const animationId = animation?.id;
+  const animationRef = useRef(animation);
+  animationRef.current = animation;
   useEffect(() => {
-    if (animation) anim.current = { wps: animation.waypoints, i: 0, t: 0, from: group.current.position.clone() };
-  }, [animation]);
+    const a = animationRef.current;
+    if (a) anim.current = { id: a.id, wps: a.waypoints, i: 0, t: 0, from: group.current.position.clone() };
+  }, [animationId]);
 
   useFrame(({ clock }, delta) => {
     const g = group.current;
@@ -70,7 +75,7 @@ export function Token({ seat, rest, animation, selectable, onSelect, onWaypointS
         a.t = 0;
         if (a.i >= a.wps.length) {
           anim.current = null;
-          callbacks.current.onDone();
+          callbacks.current.onDone(a.id);
         }
       }
     } else {
