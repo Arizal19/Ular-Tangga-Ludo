@@ -134,7 +134,7 @@ function Tiles() {
     return {
       sides: mergeGeometries(sideGeos),
       tops: mergeGeometries(topGeos),
-      topMaterial: new THREE.MeshPhysicalMaterial({ map, roughness: 0.38, metalness: 0.1, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
+      topMaterial: new THREE.MeshPhysicalMaterial({ map, emissiveMap: map, emissive: "#ffffff", emissiveIntensity: 0.22, roughness: 0.38, metalness: 0.1, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
       outline: outlinePts,
     };
   }, []);
@@ -148,7 +148,7 @@ function Tiles() {
   );
 }
 
-const SIDE_MATERIAL = new THREE.MeshStandardMaterial({ color: "#0c1210", roughness: 0.55, metalness: 0.35 });
+const SIDE_MATERIAL = new THREE.MeshStandardMaterial({ color: "#1d3027", roughness: 0.5, metalness: 0.3 });
 
 /** Pulsing emerald rings over tiles a human player can move to. */
 export function TileHighlights({ tiles }: { tiles: TileId[] }) {
@@ -212,7 +212,7 @@ function SummitCrest() {
   return (
     <group ref={g}>
       <Crest size={0.7} glow={0.75} />
-      <pointLight color="#34d399" intensity={2.5} distance={4} />
+      <pointLight color="#34d399" intensity={2} distance={4} />
     </group>
   );
 }

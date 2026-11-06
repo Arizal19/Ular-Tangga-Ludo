@@ -13,6 +13,7 @@ import { type GuestMessage, type HostMessage, type Snapshot, controls } from "@/
 import type { PlayerConfig } from "@/lib/rules";
 import { Scene } from "./scene/Scene";
 import { Hud } from "./ui/Hud";
+import { IntroSplash } from "./ui/IntroSplash";
 import { SetupScreen } from "./ui/SetupScreen";
 
 const SFX_NAMES = new Set<SfxName>(["dice", "step", "enter", "ladder", "snake", "capture", "finish", "win", "six", "fizzle"]);
@@ -24,6 +25,8 @@ export default function Game() {
   const [remote, setRemote] = useState<Snapshot | null>(null);
   const [remoteLobby, setRemoteLobby] = useState<PlayerConfig[] | null>(null);
   const [initialRoom] = useState(() => new URLSearchParams(window.location.search).get("room") ?? "");
+  // Opening motion graphic (once per session). A partner opening an invite link skips it to join fast.
+  const [introDone, setIntroDone] = useState(() => !!new URLSearchParams(window.location.search).get("room"));
 
   // Refs let network callbacks see the latest engine/role without re-subscribing.
   const engineRef = useRef<ReturnType<typeof useGameEngine> | null>(null);
@@ -191,6 +194,7 @@ export default function Game() {
           initialPlayers={lastPlayers.current}
         />
       )}
+      {!introDone && <IntroSplash onDone={() => setIntroDone(true)} />}
     </main>
   );
 }

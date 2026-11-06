@@ -73,18 +73,21 @@ export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props)
     () =>
       FACE_VALUES.map((v) => {
         const map = pipTexture(v);
+        // Glass-look without `transmission`: transmission re-renders the whole scene every frame
+        // (costly on phones). Translucent + clearcoat + env reflections reads the same on a small cube.
         return new THREE.MeshPhysicalMaterial({
-          color: "#34d399",
+          color: "#2fd9a0",
           emissive: "#ecfdf5",
           emissiveMap: map,
           emissiveIntensity: 1.6,
-          transmission: 0.82,
-          thickness: 0.9,
-          roughness: 0.06,
+          transparent: true,
+          opacity: 0.9,
+          roughness: 0.05,
+          metalness: 0.1,
           ior: 1.6,
           clearcoat: 1,
-          attenuationColor: new THREE.Color("#065f46"),
-          attenuationDistance: 1.2,
+          clearcoatRoughness: 0.03,
+          envMapIntensity: 1.8,
         });
       }),
     [],
@@ -143,7 +146,7 @@ export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props)
         <ringGeometry args={[0.55, 0.62, 48]} />
         <meshBasicMaterial color={enabled ? "#6ee7b7" : "#1f4d3a"} toneMapped={false} transparent opacity={0.8} />
       </mesh>
-      <pointLight position={[0, position[1], 0]} color="#34d399" intensity={enabled ? 4 : 1.5} distance={4} />
+      <pointLight position={[0, position[1], 0]} color="#34d399" intensity={3} distance={4} />
       <Sparkles position={[0, position[1], 0]} count={rolling ? 40 : 12} scale={1.6} size={2.5} speed={rolling ? 2 : 0.4} color="#a7f3d0" />
     </group>
   );
