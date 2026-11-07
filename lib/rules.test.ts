@@ -92,7 +92,8 @@ test("landing on an opponent captures it; safe tiles protect", () => {
       t.id === "t0-0" ? { ...t, progress: p0 - 3 } : t.id === "t2-0" ? { ...t, progress: 5 } : t,
     ),
   };
-  const o = resolveMove(g1, { tokenId: "t0-0", from: p0 - 3, to: p0 }, 3);
+  // This tile is also a magic rune: switch spells off so only the takeover is tested.
+  const o = resolveMove(g1, { tokenId: "t0-0", from: p0 - 3, to: p0 }, 3, Math.random, false);
   assert.deepEqual(o.captured.map((t) => t.id), ["t2-0"]);
   assert.equal(o.next.tokens.find((t) => t.id === "t2-0")!.progress, 0);
   assert.ok(o.extraTurn);
