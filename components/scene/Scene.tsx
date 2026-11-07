@@ -17,6 +17,15 @@ import { Jumps } from "./Jumps";
 import { Token } from "./Token";
 
 const DIE_POSITION: Vec3 = [-8.4, 1.6, 0.6];
+/** Tone-mapping exposure follows the graphics preset without remounting the canvas. */
+function Exposure({ value }: { value: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.toneMappingExposure = value;
+  }, [gl, value]);
+  return null;
+}
+
 /** Default view direction from the board centre: lower than a top-down view so the tiers read in 3D/4D. */
 const VIEW_DIR = new THREE.Vector3(0, 0.66, 0.75).normalize();
 const HOME_DISTANCE = 20; // closer than before (was ~23.4) so the ziggurat fills the screen
@@ -81,6 +90,11 @@ function CameraRig({ playing }: { playing: boolean }) {
     return () => window.removeEventListener("pointerdown", skip);
   }, []);
 
+  // Local visual tests only (env unset in production builds, so this is compiled out).
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEBUG_CAMERA) Object.assign(window, { __cam: { camera, orbit } });
+  }, [camera, orbit]);
+
   const tmpTarget = useMemo(() => new THREE.Vector3(), []);
   useFrame((_, delta) => {
     const f = flight.current;
@@ -144,7 +158,7 @@ function StoneTable() {
 }
 
 /** Wax candle with a flickering flame light (nod to the candle-lit table art). */
-function Candle({ position, height = 0.9, lit = true }: { position: Vec3; height?: number; lit?: boolean }) {
+function Candle({ position, height = 0.9, lit = true, power = 1 }: { position: Vec3; height?: number; lit?: boolean; power?: number }) {
   const light = useRef<THREE.PointLight>(null);
   const flame = useRef<THREE.Mesh>(null);
   const seed = useMemo(() => Math.random() * 100, []);
@@ -152,7 +166,7 @@ function Candle({ position, height = 0.9, lit = true }: { position: Vec3; height
     const t = clock.elapsedTime + seed;
     const f = 1 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.06;
     // The flame mesh dances, but the light it casts stays steady: a fluctuating light read as a blinking lamp.
-    if (light.current) light.current.intensity = 6.5 + (f - 1) * 0.6;
+    if (light.current) light.current.intensity = (6.5 + (f - 1) * 0.6) * power;
     if (flame.current) flame.current.scale.set(1, f, 1);
   });
   return (
@@ -239,7 +253,6 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       // default framebuffer would be paid for and then thrown away.
       gl={{ antialias: !profile.bloom, powerPreference: "high-performance", stencil: false }}
       onCreated={({ gl }) => {
-        gl.toneMappingExposure = 1.4; // brighter, stable image
         // If the mobile GPU driver drops the context (memory pressure), let three rebuild it
         // instead of leaving a black canvas.
         const canvas = gl.domElement;
@@ -257,14 +270,15 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       <color attach="background" args={["#05140d"]} />
       <fog attach="fog" args={["#05140d", 45, 110]} />
       <CameraRig playing={!!game} />
+      <Exposure value={profile.exposure} />
 
       {/* Moonlight through the dungeon window + emerald under-glow. All lights are steady (no flicker). */}
-      <ambientLight intensity={0.9} color="#b7f7d8" />
-      <hemisphereLight args={["#c7d2de", "#0a3d22", 1.0]} />
+      <ambientLight intensity={0.9 * profile.light} color="#b7f7d8" />
+      <hemisphereLight args={["#c7d2de", "#0a3d22", 1.0 * profile.light]} />
       <directionalLight
         key={shadowSize}
         position={[7, 16, 5]}
-        intensity={2.8}
+        intensity={2.8 * (0.5 + profile.light / 2)}
         color="#e8edff"
         castShadow
         shadow-mapSize={[shadowSize, shadowSize]}
@@ -274,7 +288,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         shadow-camera-bottom={-11}
         shadow-bias={-0.0004}
       />
-      <pointLight position={[0, 4.5, 0]} color="#22c55e" intensity={16} distance={14} decay={2} />
+      <pointLight position={[0, 4.5, 0]} color="#22c55e" intensity={16 * profile.light} distance={14} decay={2} />
 
       {/* Local studio reflections for the silver & emerald (no network HDR needed) */}
       <Environment resolution={profile.envResolution} frames={1}>
@@ -289,10 +303,10 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         <meshStandardMaterial color="#0c1512" metalness={0.45} roughness={0.5} />
       </mesh>
 
-      <Candle position={[-9.6, -0.25, -3.2]} height={1.1} />
-      <Candle position={[-9.4, -0.25, 4.2]} height={0.7} />
-      <Candle position={[9.3, -0.25, -3.2]} height={0.9} />
-      <Candle position={[9.6, -0.25, 2.8]} height={1.2} />
+      <Candle position={[-9.6, -0.25, -3.2]} height={1.1} power={profile.light} />
+      <Candle position={[-9.4, -0.25, 4.2]} height={0.7} power={profile.light} />
+      <Candle position={[9.3, -0.25, -3.2]} height={0.9} power={profile.light} />
+      <Candle position={[9.6, -0.25, 2.8]} height={1.2} power={profile.light} />
       {/* Candle clusters like the opening clip; only the four above cast light (lights are the costly part). */}
       {CANDLE_CLUSTER.map(([x, z, h], i) => (
         <Candle key={i} position={[x, -0.25, z]} height={h} lit={false} />
@@ -315,6 +329,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
           onSelect={() => onSelectToken(t.id)}
           onWaypointSfx={onSfx}
           onDone={onAnimationDone}
+          detailed={quality !== "low"}
         />
       ))}
       </Suspense>
@@ -340,7 +355,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         autoRotateSpeed={0.6}
       />
 
-      {profile.bloom && <BloomEffect strength={quality === "high" ? 0.85 : 0.7} />}
+      {profile.bloom && <BloomEffect strength={profile.bloomStrength} threshold={quality === "high" ? 0.95 : 0.9} />}
     </Canvas>
   );
 }

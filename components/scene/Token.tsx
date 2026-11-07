@@ -13,12 +13,8 @@ import type { Seat, Vec3 } from "@/lib/board";
 import { SEAT_THEME } from "@/lib/theme";
 import type { TokenAnimation, Waypoint } from "@/hooks/useGameEngine";
 import type { SfxName } from "@/hooks/useSfx";
+import { Wizard, type WizardMotion } from "./Wizard";
 
-/** Robe silhouette (radius, height), shared by every figure. */
-const ROBE = new THREE.LatheGeometry(
-  [[0.2, 0], [0.19, 0.05], [0.15, 0.2], [0.11, 0.36], [0.085, 0.46], [0.05, 0.5], [0, 0.5]].map(([x, y]) => new THREE.Vector2(x, y)),
-  28,
-);
 
 const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
 const TRAIL_COLOR = { walk: "#6ee7b7", ladder: "#e2e8f0", snake: "#22c55e" } as const;
@@ -33,9 +29,13 @@ interface Props {
   onSelect: () => void;
   onWaypointSfx: (s: SfxName) => void;
   onDone: (animationId: number) => void;
+  /** Full figure (arms, wand, scarf…) vs. a light silhouette on Low graphics. */
+  detailed: boolean;
 }
 
-export function Token({ seat, character, rest, animation, selectable, onSelect, onWaypointSfx, onDone }: Props) {
+export function Token({ seat, character, rest, animation, selectable, onSelect, onWaypointSfx, onDone, detailed }: Props) {
+  const motion = useRef<WizardMotion>({ moving: false, ready: false });
+  const lastPos = useRef(new THREE.Vector3());
   const group = useRef<THREE.Group>(null!);
   const body = useRef<THREE.Group>(null!);
   const ring = useRef<THREE.Mesh>(null!);
@@ -98,8 +98,19 @@ export function Token({ seat, character, rest, animation, selectable, onSelect, 
       const lift = Math.min(2.2, Math.hypot(dx, dz) * 0.45);
       g.position.y += (t.y + lift - g.position.y) * f;
     }
-    // Idle breathing; selectable tokens pulse their ring.
-    body.current.position.y = Math.sin(clock.elapsedTime * 2 + seat) * 0.02;
+    // Face the direction of travel (smallest turn), then keep that heading at rest.
+    const vx = g.position.x - lastPos.current.x;
+    const vz = g.position.z - lastPos.current.z;
+    if (vx * vx + vz * vz > 1e-6) {
+      const want = Math.atan2(vx, vz);
+      const cur = body.current.rotation.y;
+      const diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
+      body.current.rotation.y = cur + diff * Math.min(1, dt * 10);
+    }
+    lastPos.current.copy(g.position);
+    motion.current.moving = !!anim.current;
+    motion.current.ready = selectable;
+    // Selectable tokens pulse their ring.
     const pulse = selectable ? 1 + Math.sin(clock.elapsedTime * 6) * 0.15 : 1;
     ring.current.scale.setScalar(pulse * (hovered && selectable ? 1.25 : 1));
     (ring.current.material as THREE.MeshBasicMaterial).opacity = selectable ? 0.95 : 0.35;
@@ -134,21 +145,10 @@ export function Token({ seat, character, rest, animation, selectable, onSelect, 
           <cylinderGeometry args={[0.22, 0.25, 0.1, 28]} />
           <meshStandardMaterial color={color} metalness={0.85} roughness={0.25} emissive={color} emissiveIntensity={0.35} />
         </mesh>
-        {/* Robed figure */}
-        <mesh geometry={ROBE} position={[0, 0.1, 0]} castShadow>
-          <meshStandardMaterial color="#141b18" roughness={0.65} metalness={0.15} />
-        </mesh>
-        {/* House scarf + head */}
-        <mesh position={[0, 0.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.07, 0.024, 10, 24]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.4} roughness={0.5} />
-        </mesh>
-        <mesh position={[0, 0.66, 0]} castShadow>
-          <sphereGeometry args={[0.085, 20, 16]} />
-          <meshStandardMaterial color="#d9c2a5" roughness={0.6} />
-        </mesh>
-        {/* Portrait medallion: who this piece is, readable from any camera angle */}
-        <Billboard position={[0, 1.12, 0]}>
+        <Wizard character={character} color={color} glow={glow} simple={!detailed} motion={motion} />
+      </group>
+      {/* Portrait medallion (outside the turning body): who this piece is, from any camera angle */}
+      <Billboard position={[0, 1.24, 0]}>
           <mesh>
             <circleGeometry args={[0.3, 40]} />
             <meshBasicMaterial map={portrait} toneMapped={false} />
@@ -157,8 +157,7 @@ export function Token({ seat, character, rest, animation, selectable, onSelect, 
             <ringGeometry args={[0.295, 0.35, 40]} />
             <meshBasicMaterial color={glow} toneMapped={false} />
           </mesh>
-        </Billboard>
-      </group>
+      </Billboard>
       {animation && (
         <Trail width={1.6} length={5} color={TRAIL_COLOR[animation.trail]} attenuation={(w) => w * w}>
           <mesh position={[0, 0.25, 0]}>

@@ -13,16 +13,20 @@ export interface QualityProfile {
   /** Per-tile texture resolution in the board atlas. */
   atlasCell: number;
   envResolution: number;
+  /** Tone-mapping exposure and a multiplier for the scene lights (High is moodier, less glare). */
+  exposure: number;
+  light: number;
+  bloomStrength: number;
 }
 
 const phone = () => typeof window !== "undefined" && window.innerWidth < 768;
 
 export function profileFor(mode: QualityMode): QualityProfile {
   if (mode === "low")
-    return { maxPixels: 1.0e6, shadow: 1024, bloom: false, sparkle: 0.35, adaptive: false, atlasCell: 128, envResolution: 128 };
+    return { maxPixels: 1.0e6, shadow: 1024, bloom: false, sparkle: 0.35, adaptive: false, atlasCell: 128, envResolution: 128, exposure: 1.4, light: 1, bloomStrength: 0 };
   if (mode === "high")
-    return { maxPixels: 5.5e6, shadow: phone() ? 2048 : 4096, bloom: true, sparkle: 1.6, adaptive: false, atlasCell: 256, envResolution: 512 };
-  return { maxPixels: 2.2e6, shadow: phone() ? 1024 : 2048, bloom: true, sparkle: 1, adaptive: true, atlasCell: 256, envResolution: 256 };
+    return { maxPixels: 5.5e6, shadow: phone() ? 2048 : 4096, bloom: true, sparkle: 1.6, adaptive: false, atlasCell: 256, envResolution: 512, exposure: 1.1, light: 0.72, bloomStrength: 0.45 };
+  return { maxPixels: 2.2e6, shadow: phone() ? 1024 : 2048, bloom: true, sparkle: 1, adaptive: true, atlasCell: 256, envResolution: 256, exposure: 1.4, light: 1, bloomStrength: 0.7 };
 }
 
 const KEY = "slytherin-quality";
