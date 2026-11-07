@@ -13,6 +13,7 @@ import { type QualityMode, profileFor } from "@/lib/quality";
 import { BloomEffect, isSoftwareRenderer } from "./BloomEffect";
 import { Board, TileHighlights } from "./Board";
 import { CrystalDie } from "./CrystalDie";
+import { Statues } from "./Statues";
 import { Jumps } from "./Jumps";
 import { Token } from "./Token";
 
@@ -359,6 +360,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       </Suspense>
       </Quake>
 
+      <Statues die={DIE_POSITION} />
       <CrystalDie
         position={DIE_POSITION}
         value={dice.value}

@@ -1,13 +1,16 @@
 "use client";
 /**
- * Floating emerald-crystal die. Tumbles wildly while `rolling`, then slerps so
- * the rolled face points up. Click it to roll when it's a human's turn.
+ * Floating emerald gemstone die above the guardians' altar: polished, rounded
+ * edges and inlaid silver pips that catch the light. Tumbles wildly while
+ * `rolling`, then slerps so the rolled face points up. Tap it to roll.
  */
-import { Sparkles } from "@react-three/drei";
+import { RoundedBox, Sparkles } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { Vec3 } from "@/lib/board";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { ALTAR_TOP } from "./Statues";
 
 const SCALE = new THREE.Vector3(); // reused every frame, no per-frame allocation
 
@@ -33,26 +36,32 @@ const PIPS: Record<number, [number, number][]> = {
   6: [[0.27, 0.22], [0.73, 0.22], [0.27, 0.5], [0.73, 0.5], [0.27, 0.78], [0.73, 0.78]],
 };
 
-/** Glowing silver pips on black — used as an emissive map so pips shine through the crystal. */
-function pipTexture(value: number) {
-  const s = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = s;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, s, s);
-  ctx.strokeStyle = "#3f6f5a";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(4, 4, s - 8, s - 8);
-  ctx.fillStyle = "#f0fdf4";
-  for (const [x, y] of PIPS[value]) {
-    ctx.beginPath();
-    ctx.arc(x * s, y * s, s * 0.085, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+const SIZE = 0.85;
+
+/** Face normal + in-plane axes, in BoxGeometry face order (+x, −x, +y, −y, +z, −z). */
+const FACE_AXES: [THREE.Vector3, THREE.Vector3, THREE.Vector3][] = [
+  [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0)],
+  [new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0)],
+  [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, -1)],
+  [new THREE.Vector3(0, -1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)],
+  [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)],
+  [new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0)],
+];
+
+/** All 21 pips as one geometry: silver enamel domes sunk into the faces so only a low cap shows. */
+function pipGeometry() {
+  const r = 0.075;
+  const parts: THREE.BufferGeometry[] = [];
+  FACE_VALUES.forEach((value, f) => {
+    const [n, u, v] = FACE_AXES[f];
+    for (const [px, py] of PIPS[value]) {
+      const pos = n.clone().multiplyScalar(SIZE / 2 + 0.004 - r * 0.78)
+        .addScaledVector(u, (px - 0.5) * SIZE * 0.84)
+        .addScaledVector(v, (0.5 - py) * SIZE * 0.84);
+      parts.push(new THREE.SphereGeometry(r, 16, 12).translate(pos.x, pos.y, pos.z));
+    }
+  });
+  return mergeGeometries(parts)!;
 }
 
 interface Props {
@@ -64,32 +73,30 @@ interface Props {
 }
 
 export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props) {
-  const mesh = useRef<THREE.Mesh>(null!);
+  const mesh = useRef<THREE.Group>(null!);
   const spin = useRef(new THREE.Vector3(7, 9, 5));
   const goal = useRef(new THREE.Quaternion());
   const [hovered, setHovered] = useState(false);
 
-  const materials = useMemo(
-    () =>
-      FACE_VALUES.map((v) => {
-        const map = pipTexture(v);
-        // Glass-look without `transmission`: transmission re-renders the whole scene every frame
-        // (costly on phones). Translucent + clearcoat + env reflections reads the same on a small cube.
-        return new THREE.MeshPhysicalMaterial({
-          color: "#2fd9a0",
-          emissive: "#ecfdf5",
-          emissiveMap: map,
-          emissiveIntensity: 1.6,
-          transparent: true,
-          opacity: 0.9,
-          roughness: 0.05,
-          metalness: 0.1,
-          ior: 1.6,
-          clearcoat: 1,
-          clearcoatRoughness: 0.03,
-          envMapIntensity: 1.8,
-        });
+  const { pips, body, silver } = useMemo(
+    () => ({
+      pips: pipGeometry(),
+      // Polished emerald: opaque gem body, glassy clearcoat, faint inner glow.
+      body: new THREE.MeshPhysicalMaterial({
+        color: "#0b7a4d",
+        emissive: "#065f46",
+        emissiveIntensity: 0.35,
+        roughness: 0.08,
+        metalness: 0,
+        clearcoat: 1,
+        clearcoatRoughness: 0.03,
+        ior: 1.6,
+        specularIntensity: 1,
+        envMapIntensity: 1.7,
       }),
+      // Enamel-silver pips: partly metallic so they stay bright even where the reflection is dark.
+      silver: new THREE.MeshStandardMaterial({ color: "#f1f5f9", emissive: "#cbd5e1", emissiveIntensity: 0.18, metalness: 0.45, roughness: 0.22 }),
+    }),
     [],
   );
 
@@ -121,11 +128,9 @@ export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props)
 
   return (
     <group position={[position[0], 0, position[2]]}>
-      <mesh
+      <group
         ref={mesh}
         position={[0, position[1], 0]}
-        material={materials}
-        castShadow
         onClick={(e) => {
           e.stopPropagation();
           if (enabled) onRoll();
@@ -139,10 +144,11 @@ export function CrystalDie({ position, value, rolling, enabled, onRoll }: Props)
           document.body.style.cursor = "";
         }}
       >
-        <boxGeometry args={[0.85, 0.85, 0.85]} />
-      </mesh>
-      {/* Levitation glyph under the die */}
-      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <RoundedBox args={[SIZE, SIZE, SIZE]} radius={0.11} smoothness={5} material={body} castShadow />
+        <mesh geometry={pips} material={silver} />
+      </group>
+      {/* Levitation glyph on the altar under the die */}
+      <mesh position={[0, ALTAR_TOP + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.55, 0.62, 48]} />
         <meshBasicMaterial color={enabled ? "#6ee7b7" : "#1f4d3a"} toneMapped={false} transparent opacity={0.8} />
       </mesh>
