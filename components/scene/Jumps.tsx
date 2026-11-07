@@ -62,7 +62,7 @@ function SerpentBody({ geometry, phase }: { geometry: THREE.BufferGeometry; phas
   );
 }
 
-function Serpents() {
+function Serpents({ sparkle }: { sparkle: number }) {
   const { bodies, heads, eyes, fangs, mids } = useMemo(() => {
     const headGeo = new THREE.SphereGeometry(0.2, 20, 16);
     const eyeGeo = new THREE.SphereGeometry(0.032, 10, 10);
@@ -105,7 +105,7 @@ function Serpents() {
         <meshStandardMaterial color="#f1f5f9" metalness={1} roughness={0.2} />
       </mesh>
       {mids.map((p, i) => (
-        <Sparkles key={i} position={p} count={14} scale={[1.2, 0.8, 1.2]} size={2.2} speed={0.4} color="#4ade80" />
+        <Sparkles key={i} position={p} count={Math.round(14 * sparkle)} scale={[1.2, 0.8, 1.2]} size={2.2} speed={0.4} color="#4ade80" />
       ))}
     </group>
   );
@@ -119,7 +119,7 @@ function rod(a: THREE.Vector3, b: THREE.Vector3, radius: number) {
   return geo.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)));
 }
 
-function SilverLadders() {
+function SilverLadders({ sparkle }: { sparkle: number }) {
   const { geometry, glints } = useMemo(() => {
     const parts: THREE.BufferGeometry[] = [];
     const glints: THREE.Vector3[] = [];
@@ -145,17 +145,17 @@ function SilverLadders() {
         <meshStandardMaterial color="#d7dde5" metalness={1} roughness={0.24} envMapIntensity={0.95} />
       </mesh>
       {glints.map((p, i) => (
-        <Sparkles key={i} position={p} count={10} scale={[0.8, 1, 0.8]} size={2} speed={0.5} color="#e2e8f0" />
+        <Sparkles key={i} position={p} count={Math.round(10 * sparkle)} scale={[0.8, 1, 0.8]} size={2} speed={0.5} color="#e2e8f0" />
       ))}
     </group>
   );
 }
 
-export function Jumps() {
+export function Jumps({ sparkle = 1 }: { sparkle?: number }) {
   return (
     <group>
-      <Serpents />
-      <SilverLadders />
+      <Serpents sparkle={sparkle} />
+      <SilverLadders sparkle={sparkle} />
     </group>
   );
 }

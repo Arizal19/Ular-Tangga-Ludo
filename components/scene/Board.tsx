@@ -73,24 +73,23 @@ function drawTileFace(ctx: CanvasRenderingContext2D, id: TileId, ox: number, oy:
   ctx.fillStyle = "#e7ebf0";
   ctx.shadowColor = "rgba(0,0,0,0.8)";
   ctx.shadowBlur = 8;
-  ctx.font = "bold 104px Cinzel, Georgia, serif";
+  ctx.font = `bold ${Math.round(size * 0.406)}px Cinzel, Georgia, serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(String(runeNumber(id)), size / 2, size / 2 + 6);
   if (isStar) {
-    ctx.font = "bold 34px Cinzel, Georgia, serif";
+    ctx.font = `bold ${Math.round(size * 0.133)}px Cinzel, Georgia, serif`;
     ctx.fillText("PROTEGO", size / 2, size - 38);
   }
   ctx.restore();
 }
 
-const CELL = 256; // same per-tile resolution as before, now one 2560² atlas instead of 100 textures
 
 /**
  * All 100 tiles as two merged meshes (stone sides + numbered tops) and one
  * merged silver outline: ~3 draw calls instead of ~200, identical look.
  */
-function Tiles() {
+function Tiles({ cell: CELL }: { cell: number }) {
   const { sides, tops, topMaterial, outline } = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = CELL * GRID;
@@ -137,7 +136,7 @@ function Tiles() {
       topMaterial: new THREE.MeshPhysicalMaterial({ map, emissiveMap: map, emissive: "#ffffff", emissiveIntensity: 0.22, roughness: 0.38, metalness: 0.1, clearcoat: 0.45, clearcoatRoughness: 0.3 }),
       outline: outlinePts,
     };
-  }, []);
+  }, [CELL]);
 
   return (
     <group>
@@ -217,7 +216,7 @@ function SummitCrest() {
   );
 }
 
-export function Board({ activeSeats, currentSeat }: { activeSeats: Seat[]; currentSeat: Seat | null }) {
+export function Board({ activeSeats, currentSeat, atlasCell }: { activeSeats: Seat[]; currentSeat: Seat | null; atlasCell: number }) {
   const half = (GRID * TILE_SIZE) / 2;
   return (
     <group>
@@ -232,7 +231,7 @@ export function Board({ activeSeats, currentSeat }: { activeSeats: Seat[]; curre
         <ringGeometry args={[half * 1.54, half * 1.58, 4, 1, Math.PI / 4]} />
         <meshBasicMaterial color="#10b981" toneMapped={false} transparent opacity={0.5} />
       </mesh>
-      <Tiles />
+      <Tiles cell={atlasCell} />
       {SEATS.map((s) => (
         <BaseZone key={s} seat={s} active={activeSeats.includes(s)} current={currentSeat === s} />
       ))}

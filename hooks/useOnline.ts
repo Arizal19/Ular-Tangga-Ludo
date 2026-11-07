@@ -41,12 +41,17 @@ export function useOnline(handlers: Handlers) {
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
   const handlersRef = useRef(handlers);
+  const codeRef = useRef("");
+  const retryRef = useRef({ n: 0, timer: 0 });
+  codeRef.current = code;
 
   useEffect(() => {
     handlersRef.current = handlers;
   });
 
+  const genRef = useRef(0); // bumped on every teardown so events from an old connection are ignored
   const teardown = () => {
+    genRef.current += 1;
     connRef.current?.close();
     peerRef.current?.destroy();
     connRef.current = null;
@@ -59,13 +64,28 @@ export function useOnline(handlers: Handlers) {
     setStatus("error");
   };
 
+  /** Guest: rejoin the same room with growing delays (1s, 2s, 3s, 5s…), up to 10 tries. */
+  const scheduleRetry = () => {
+    const r = retryRef.current;
+    window.clearTimeout(r.timer);
+    if (r.n >= 10) return;
+    r.timer = window.setTimeout(() => {
+      r.n += 1;
+      if (codeRef.current) void joinRef.current(codeRef.current);
+    }, Math.min(5000, 1000 * (r.n + 1)));
+  };
+  const joinRef = useRef<(c: string) => Promise<void>>(async () => {});
+
   /** Wire a data connection (both roles). */
   const attach = useCallback((conn: DataConnection, asHost: boolean) => {
+    const gen = genRef.current;
     conn.on("open", () => {
       if (asHost && connRef.current && connRef.current !== conn) connRef.current.close(); // one partner per room
       connRef.current = conn;
       setStatus("connected");
       setError("");
+      retryRef.current.n = 0;
+      window.clearTimeout(retryRef.current.timer);
       if (asHost) handlersRef.current.onGuestJoined?.();
     });
     conn.on("data", (data) => {
@@ -74,13 +94,16 @@ export function useOnline(handlers: Handlers) {
         handlersRef.current.onMessage(data as HostMessage | GuestMessage);
       }
     });
-    conn.on("close", () => {
-      if (connRef.current === conn) {
+    const dropped = () => {
+      if (gen !== genRef.current) return;
+      if (connRef.current === conn || !connRef.current) {
         connRef.current = null;
         setStatus(asHost ? "waiting" : "disconnected");
+        if (!asHost) scheduleRetry();
       }
-    });
-    conn.on("error", () => setStatus(asHost ? "waiting" : "disconnected"));
+    };
+    conn.on("close", dropped);
+    conn.on("error", dropped);
   }, []);
 
   /** Create a room; retries with a fresh code if the id is taken. */
@@ -135,7 +158,34 @@ export function useOnline(handlers: Handlers) {
     [attach],
   );
 
+  useEffect(() => {
+    joinRef.current = join;
+  }, [join]);
+
+  // A phone that slept (or a laptop that woke) usually has a dead socket: revive it right away.
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState !== "visible") return;
+      if (role === "guest" && status !== "connected" && codeRef.current) void joinRef.current(codeRef.current);
+      if (role === "host" && peerRef.current?.disconnected && !peerRef.current.destroyed) peerRef.current.reconnect();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [role, status]);
+
+  // Warm the PeerJS chunk while the player is still on the lobby, so "Create room" feels instant.
+  useEffect(() => {
+    const id = window.setTimeout(() => void import("peerjs"), 2500);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const leave = useCallback(() => {
+    window.clearTimeout(retryRef.current.timer);
+    retryRef.current.n = 0;
     teardown();
     setRole("local");
     setCode("");

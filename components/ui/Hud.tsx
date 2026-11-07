@@ -1,6 +1,7 @@
 "use client";
 /** In-game overlay: player roster, action bar, spell log, rules, victory banner. */
 import { useState } from "react";
+import { QUALITY_LABEL, type QualityMode } from "@/lib/quality";
 import { FINISH, LAP_LENGTH, runeNumber, tileAt } from "@/lib/board";
 import type { GameState, LogEntry, LogTone, Move } from "@/lib/rules";
 import { SEAT_THEME } from "@/lib/theme";
@@ -73,6 +74,8 @@ interface HudProps {
   onRoll: () => void;
   onSelectToken: (id: string) => void;
   onToggleMute: () => void;
+  quality: QualityMode;
+  onCycleQuality: () => void;
   onRestart: () => void;
   onNewSetup: () => void;
   /** This device controls the current turn. */
@@ -84,7 +87,7 @@ interface HudProps {
 }
 
 export function Hud(props: HudProps) {
-  const { game, phase, dice, moves, log, muted, onRoll, onSelectToken, onToggleMute, onRestart, onNewSetup, canAct, isGuest, netBadge } = props;
+  const { game, phase, dice, moves, log, muted, onRoll, onSelectToken, onToggleMute, quality, onCycleQuality, onRestart, onNewSetup, canAct, isGuest, netBadge } = props;
   const [showRules, setShowRules] = useState(false);
   const current = game.players[game.turn];
   const theme = SEAT_THEME[current.seat];
@@ -151,6 +154,7 @@ export function Hud(props: HudProps) {
         <nav className="flex flex-wrap justify-end gap-1.5 text-xs" aria-label="Game controls">
           {[
             { label: muted ? "Unmute" : "Mute", onClick: onToggleMute },
+            { label: `Graphics: ${QUALITY_LABEL[quality]}`, onClick: onCycleQuality },
             { label: "Rules", onClick: () => setShowRules((v) => !v) },
             ...(isGuest ? [] : [{ label: "Restart", onClick: onRestart }]),
             { label: isGuest ? "Leave" : "Lobby", onClick: onNewSetup },

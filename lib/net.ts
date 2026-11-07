@@ -24,9 +24,10 @@ export interface Snapshot {
 export type HostMessage =
   | { t: "state"; s: Snapshot }
   | { t: "lobby"; players: PlayerConfig[] }
-  | { t: "sfx"; name: SfxName };
+  | { t: "sfx"; name: SfxName }
+  | { t: "pong"; ts: number };
 
-export type GuestMessage = { t: "roll" } | { t: "select"; tokenId: string };
+export type GuestMessage = { t: "roll" } | { t: "select"; tokenId: string } | { t: "ping"; ts: number };
 
 /** Does this device control `player`'s turn? */
 export function controls(role: Role, player: PlayerConfig): boolean {

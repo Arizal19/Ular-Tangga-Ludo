@@ -9,6 +9,7 @@ import type { GameState, Move } from "@/lib/rules";
 import { tokenTile } from "@/lib/rules";
 import { type DiceState, type Phase, type TokenAnimation, restPosition } from "@/hooks/useGameEngine";
 import type { SfxName } from "@/hooks/useSfx";
+import { type QualityMode, profileFor } from "@/lib/quality";
 import { BloomEffect, isSoftwareRenderer } from "./BloomEffect";
 import { Board, TileHighlights } from "./Board";
 import { CrystalDie } from "./CrystalDie";
@@ -43,7 +44,7 @@ function CameraRig({ playing }: { playing: boolean }) {
   const { camera, size, controls } = useThree();
   const orbit = controls as unknown as { target: THREE.Vector3; update: () => void; enabled: boolean } | null;
   const flight = useRef<{ t: number; from: THREE.Vector3; fromTarget: THREE.Vector3 } | null>(null);
-  const wasPlaying = useRef(false);
+  const wasPlaying = useRef(playing); // true on a quality-switch remount, so the fly-in is not replayed
 
   // Rest pose on mount and whenever the screen changes shape (never mid-flight).
   useEffect(() => {
@@ -183,15 +184,18 @@ export interface SceneProps {
   canAct: boolean;
   /** Browser has no GPU acceleration (e.g. Chrome's "graphics acceleration" off): game will stutter. */
   onSoftwareRenderer?: () => void;
+  quality: QualityMode;
 }
 
-export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx, canAct, onSoftwareRenderer }: SceneProps) {
+export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectToken, onAnimationDone, onSfx, canAct, onSoftwareRenderer, quality }: SceneProps) {
+  const profile = useMemo(() => profileFor(quality), [quality]);
   // Adaptive resolution: start sharp, drop a notch only while the frame rate sags, climb back when it recovers.
   // Pixel budget: Android/PC GPUs choke on dpr 2 at large sizes where Apple GPUs don't. Cap total
   // rendered pixels (~2.2 MP) instead of a fixed dpr, so every screen gets the sharpest it can hold.
-  const dprCap = useMemo(() => Math.min(2, Math.max(1, Math.sqrt(2.2e6 / (window.innerWidth * window.innerHeight)))), []);
+  const dprCap = useMemo(() => Math.min(2.5, Math.max(1, Math.sqrt(profile.maxPixels / (window.innerWidth * window.innerHeight)))), []);
   const [dpr, setDpr] = useState(() => 1 + (dprCap - 1) * 0.75);
-  const shadowSize = useMemo(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 1024 : 2048), []);
+  const shadowSize = profile.shadow;
+  const shownDpr = profile.adaptive ? Math.min(dpr, dprCap) : dprCap;
   const activeSeats: Seat[] = game ? game.players.map((p) => p.seat) : [];
   const current = game ? game.players[game.turn] : null;
 
@@ -226,12 +230,14 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
 
   return (
     <Canvas
+      // Remount when the post-processing path changes: antialias can only be set at context creation.
+      key={profile.bloom ? "fx" : "plain"}
       shadows
-      dpr={[1, dpr]}
+      dpr={[1, shownDpr]}
       camera={{ position: CAMERA_HOME.toArray(), fov: 42, near: 0.1, far: 120 }}
       // antialias off: BloomEffect renders into its own multisampled target, so MSAA on the
       // default framebuffer would be paid for and then thrown away.
-      gl={{ antialias: false, powerPreference: "high-performance", stencil: false }}
+      gl={{ antialias: !profile.bloom, powerPreference: "high-performance", stencil: false }}
       onCreated={({ gl }) => {
         gl.toneMappingExposure = 1.4; // brighter, stable image
         // If the mobile GPU driver drops the context (memory pressure), let three rebuild it
@@ -244,10 +250,10 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         }
       }}
     >
-      <PerformanceMonitor
+      {profile.adaptive && <PerformanceMonitor
         flipflops={3}
         onChange={({ factor }) => setDpr(Math.round((1 + (dprCap - 1) * factor) * 4) / 4)}
-      />
+      />}
       <color attach="background" args={["#05140d"]} />
       <fog attach="fog" args={["#05140d", 45, 110]} />
       <CameraRig playing={!!game} />
@@ -256,6 +262,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       <ambientLight intensity={0.9} color="#b7f7d8" />
       <hemisphereLight args={["#c7d2de", "#0a3d22", 1.0]} />
       <directionalLight
+        key={shadowSize}
         position={[7, 16, 5]}
         intensity={2.8}
         color="#e8edff"
@@ -270,7 +277,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       <pointLight position={[0, 4.5, 0]} color="#22c55e" intensity={16} distance={14} decay={2} />
 
       {/* Local studio reflections for the silver & emerald (no network HDR needed) */}
-      <Environment resolution={256} frames={1}>
+      <Environment resolution={profile.envResolution} frames={1}>
         <Lightformer intensity={1.2} color="#e2e8f0" position={[0, 6, -6]} scale={[12, 3, 1]} />
         <Lightformer intensity={0.8} color="#34d399" position={[-6, 3, 4]} scale={[6, 6, 1]} />
         <Lightformer intensity={0.6} color="#ffffff" position={[6, 4, 6]} scale={[4, 4, 1]} />
@@ -292,8 +299,8 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       ))}
       <StoneTable />
 
-      <Board activeSeats={activeSeats} currentSeat={current?.seat ?? null} />
-      <Jumps />
+      <Board activeSeats={activeSeats} currentSeat={current?.seat ?? null} atlasCell={profile.atlasCell} />
+      <Jumps sparkle={profile.sparkle} />
       <TileHighlights tiles={highlightTiles} />
 
       <Suspense fallback={null}>
@@ -321,7 +328,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       />
 
       {/* Drifting magical dust */}
-      <Sparkles count={120} scale={[22, 6, 22]} position={[0, 2.5, 0]} size={2.5} speed={0.25} opacity={0.6} color="#4ade80" />
+      <Sparkles count={Math.round(120 * profile.sparkle)} scale={[22, 6, 22]} position={[0, 2.5, 0]} size={2.5} speed={0.25} opacity={0.6} color="#4ade80" />
 
       <OrbitControls
         makeDefault
@@ -333,7 +340,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         autoRotateSpeed={0.6}
       />
 
-      <BloomEffect />
+      {profile.bloom && <BloomEffect strength={quality === "high" ? 0.85 : 0.7} />}
     </Canvas>
   );
 }

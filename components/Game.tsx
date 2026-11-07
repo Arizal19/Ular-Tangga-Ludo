@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameEngine } from "@/hooks/useGameEngine";
 import { useOnline } from "@/hooks/useOnline";
 import { type SfxName, useSfx } from "@/hooks/useSfx";
+import { NEXT_QUALITY, type QualityMode, loadQuality, saveQuality } from "@/lib/quality";
 import { type GuestMessage, type HostMessage, type Snapshot, controls } from "@/lib/net";
 import type { PlayerConfig } from "@/lib/rules";
 import { Scene } from "./scene/Scene";
@@ -27,6 +28,16 @@ export default function Game() {
   const [initialRoom] = useState(() => new URLSearchParams(window.location.search).get("room") ?? "");
   // Opening motion graphic (once per session). A partner opening an invite link skips it to join fast.
   const [noGpu, setNoGpu] = useState(false);
+  const [quality, setQuality] = useState<QualityMode>("auto");
+  useEffect(() => setQuality(loadQuality()), []);
+  const cycleQuality = () =>
+    setQuality((q) => {
+      const next = NEXT_QUALITY[q];
+      saveQuality(next);
+      return next;
+    });
+  const [rtt, setRtt] = useState<number | null>(null);
+  const lastPong = useRef(0);
   const [introDone, setIntroDone] = useState(() => !!new URLSearchParams(window.location.search).get("room"));
 
   // Refs let network callbacks see the latest engine/role without re-subscribing.
@@ -39,12 +50,19 @@ export default function Game() {
   const onMessage = useCallback(
     (msg: HostMessage | GuestMessage) => {
       if (roleRef.current === "guest") {
-        if (msg.t === "state") setRemote(msg.s);
+        if (msg.t === "pong" && typeof msg.ts === "number") {
+          lastPong.current = Date.now();
+          setRtt(Date.now() - msg.ts);
+        } else if (msg.t === "state") setRemote(msg.s);
         else if (msg.t === "lobby") setRemoteLobby(msg.players);
         else if (msg.t === "sfx" && SFX_NAMES.has(msg.name)) sfx.play(msg.name);
         return;
       }
-      // Host: accept intents only for seats the partner owns.
+      // Host: answer heartbeats first, then accept intents only for seats the partner owns.
+      if (msg.t === "ping" && typeof msg.ts === "number") {
+        sendRef.current({ t: "pong", ts: msg.ts });
+        return;
+      }
       const engine = engineRef.current;
       const current = engine?.game?.players[engine.game.turn];
       if (!engine || !current || !controls("guest", current)) return;
@@ -61,6 +79,18 @@ export default function Game() {
 
   const net = useOnline({ onMessage, onGuestJoined });
   const role = net.role;
+
+  // Guest heartbeat: measures latency and revives a silently dead link (common when a phone sleeps).
+  useEffect(() => {
+    if (role !== "guest" || net.status !== "connected") return;
+    lastPong.current = Date.now();
+    const id = window.setInterval(() => {
+      if (Date.now() - lastPong.current > 12000) void net.join(net.code);
+      else net.send({ t: "ping", ts: Date.now() });
+    }, 4000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, net.status, net.code, net.send]);
 
   // SFX TRIGGER: engine sounds play here and are mirrored to the partner's device.
   const playAndMirror = useCallback(
@@ -142,6 +172,7 @@ export default function Game() {
       <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-silver/20 bg-black/60 px-2 py-0.5 text-[11px] text-silver/80">
         <span className={`h-2 w-2 rounded-full ${net.status === "connected" ? "bg-emerald-400" : "bg-amber-400"}`} />
         Room {net.code} · {net.status === "connected" ? "partner online" : isGuest ? "reconnecting…" : "partner offline"}
+        {isGuest && net.status === "connected" && rtt !== null && ` · ${rtt} ms`}
         {isGuest && net.status !== "connected" && (
           <button className="ml-1 underline" onClick={() => void net.join(net.code)}>
             retry
@@ -165,6 +196,7 @@ export default function Game() {
           onSfx={sfx.play}
           canAct={canAct}
           onSoftwareRenderer={() => setNoGpu(true)}
+          quality={quality}
         />
       </div>
       {noGpu && (
@@ -195,6 +227,8 @@ export default function Game() {
           onRestart={() => engine.start(lastPlayers.current)}
           onNewSetup={toLobby}
           canAct={canAct}
+          quality={quality}
+          onCycleQuality={cycleQuality}
           isGuest={isGuest}
           netBadge={netBadge}
         />

@@ -72,3 +72,9 @@ lib/
 SFX trigger points are marked `// SFX TRIGGER:` in `hooks/useGameEngine.ts`. To use recorded audio, replace a recipe in `hooks/useSfx.ts` with `new Audio('/sfx/x.mp3').play()`.
 
 Bloom is skipped on software renderers (SwiftShader/llvmpipe), where the bloom pass renders black.
+
+## Graphics & connection
+
+- **Graphics: Auto / High / Low** (top-right menu, remembered per device). Auto adapts resolution to the frame rate; High spends the GPU
+  (4096 shadows, 5.5 MP, richer particles); Low drops bloom and halves texture size for weak phones.
+- Online guests show their latency (ms), reconnect automatically (up to 10 tries), and re-sync when a sleeping phone wakes up.
