@@ -1,8 +1,8 @@
 "use client";
 /**
- * Carved stone guardians around the crystal die: two gryphons (eagle head and
- * wings, lion haunches) and two crouching gargoyles (horns, bat wings, tail),
- * plus the stone altar the die floats above. Original designs, built from
+ * Carved stone guardians at the middle of the four board edges: two gryphons
+ * (eagle head and wings, lion haunches) and two crouching gargoyles (horns, bat
+ * wings, tail), plus the stone altar the die floats above. Original designs, built from
  * primitives.
  *
  * Performance: every statue is ONE merged geometry with a shared stone material
@@ -194,12 +194,14 @@ export function Statues({ die }: { die: Vec3 }) {
 
   const [x, , z] = die;
   const floor = -0.25;
-  // Gryphons flank the die left/right; gargoyles crouch behind, all turned toward the board.
+  // Guardians stand at the middle of each board edge, facing outward. Gryphons take the
+  // left/right edges; the shorter gargoyles take front/back so they don't hide the tiles.
+  const E = 6.45; // just outside the plinth (half-width 5.35)
   const placements: { kind: "gryphon" | "gargoyle"; pos: Vec3; yaw: number }[] = [
-    { kind: "gryphon", pos: [x - 0.6, floor, z - 1.7], yaw: 0.9 },
-    { kind: "gryphon", pos: [x - 0.6, floor, z + 1.7], yaw: 0.65 },
-    { kind: "gargoyle", pos: [x - 2.0, floor, z - 0.85], yaw: 1.2 },
-    { kind: "gargoyle", pos: [x - 2.0, floor, z + 0.85], yaw: 1.0 },
+    { kind: "gryphon", pos: [-E, floor, 0], yaw: -Math.PI / 2 },
+    { kind: "gryphon", pos: [E, floor, 0], yaw: Math.PI / 2 },
+    { kind: "gargoyle", pos: [0, floor, E], yaw: 0 },
+    { kind: "gargoyle", pos: [0, floor, -E], yaw: Math.PI },
   ];
 
   return (
@@ -208,7 +210,7 @@ export function Statues({ die }: { die: Vec3 }) {
       {placements.map((p, i) => {
         const g = p.kind === "gryphon" ? gryphon : gargoyle;
         return (
-          <group key={i} position={p.pos} rotation={[0, p.yaw, 0]}>
+          <group key={i} position={p.pos} rotation={[0, p.yaw, 0]} scale={0.9}>
             <mesh geometry={g.stone} material={stone} castShadow receiveShadow raycast={noRaycast} />
             {/* Faint emerald eyes, kept dim so they don't glare */}
             <mesh geometry={g.eyes} raycast={noRaycast}>
