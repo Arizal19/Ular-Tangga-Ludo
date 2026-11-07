@@ -5,6 +5,7 @@ import {
   FINISH,
   JUMPS,
   LAP_LENGTH,
+  MAGIC_TILES,
   PATHS,
   SAFE_TILES,
   SEATS,
@@ -140,4 +141,48 @@ test("full 4-player AI games always terminate with a winner", () => {
       g = nextTurn(o.next, o.extraTurn, roll === 6);
     }
   }
+});
+
+test("magic runes: 16 unique tiles, never on a jump end or Protego tile", () => {
+  assert.equal(MAGIC_TILES.size, 16);
+  for (const j of JUMPS) assert.ok(!MAGIC_TILES.has(j.from) && !MAGIC_TILES.has(j.to));
+  for (const t of SAFE_TILES) assert.ok(!MAGIC_TILES.has(t));
+});
+
+test("rune spells: Felix rolls again, Portkey +5, Confundo -3, Protego gives a shield", () => {
+  const rune = [...Array(FINISH - 1).keys()].map((i) => i + 1).find((p) => p > 2 && MAGIC_TILES.has(tileAt(0, p)))!;
+  const at = (g: GameState, p: number): GameState => ({
+    ...g,
+    tokens: g.tokens.map((t) => (t.id === "t0-0" ? { ...t, progress: p } : t)),
+  });
+  const g = at(twoPlayers(), rune - 2);
+  const move = { tokenId: "t0-0", from: rune - 2, to: rune };
+  const cast = (r: number) => resolveMove(g, move, 2, () => r);
+
+  const felix = cast(0);
+  assert.equal(felix.spell?.kind, "felix");
+  assert.ok(felix.extraTurn);
+  assert.equal(felix.finalProgress, rune);
+  assert.equal(cast(0.3).finalProgress, rune + 5);
+  assert.equal(cast(0.6).finalProgress, Math.max(1, rune - 3));
+  const protego = cast(0.9);
+  assert.equal(protego.spell?.kind, "protego");
+  assert.equal(protego.next.shields[0], 1);
+  assert.ok(!cast(0.3).extraTurn);
+});
+
+test("a Protego Charm blocks one snake bite, then is used up", () => {
+  const snake = JUMPS.find((j) => j.kind === "snake")!;
+  const head = progressAt(0, snake.from);
+  let g = twoPlayers();
+  g = { ...g, shields: [1, 0, 0, 0], tokens: g.tokens.map((t) => (t.id === "t0-0" ? { ...t, progress: head - 1 } : t)) };
+  const o = resolveMove(g, { tokenId: "t0-0", from: head - 1, to: head }, 1);
+  assert.equal(o.blocked?.id, snake.id);
+  assert.equal(o.jump, null);
+  assert.equal(o.finalProgress, head);
+  assert.equal(o.next.shields[0], 0);
+  // Without a shield the same move slides down.
+  const bitten = resolveMove({ ...g, shields: [0, 0, 0, 0] }, { tokenId: "t0-0", from: head - 1, to: head }, 1);
+  assert.equal(bitten.jump?.id, snake.id);
+  assert.ok(bitten.finalProgress < head);
 });

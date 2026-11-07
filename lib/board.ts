@@ -121,6 +121,31 @@ export const JUMPS: Jump[] = SEATS.flatMap((q) =>
 
 export const JUMP_FROM = new Map<TileId, Jump>(JUMPS.map((j) => [j.from, j]));
 
+// ─── Magic runes: landing on one casts a random spell ────────────────────────
+export type SpellKind = "felix" | "portkey" | "confundo" | "protego";
+export interface Spell {
+  kind: SpellKind;
+  name: string;
+}
+/** Order matters: index = floor(rand × 4). */
+export const SPELLS: Spell[] = [
+  { kind: "felix", name: "Felix Felicis" }, // lucky potion: roll again
+  { kind: "portkey", name: "Portkey" }, // whisked 5 tiles forward
+  { kind: "confundo", name: "Confundo" }, // stumble 3 tiles back
+  { kind: "protego", name: "Protego Charm" }, // shield that blocks the next snake bite
+];
+export const PORTKEY_STEPS = 5;
+export const CONFUNDO_STEPS = 3;
+
+/** Seat-0 quadrant rune tiles (one per ring 0–3, gold on the board), replicated ×4; never on a jump end or Protego tile. */
+const QUADRANT_MAGIC: [number, number][] = [
+  [0, 4],
+  [1, 6],
+  [2, 2],
+  [3, 3],
+];
+export const MAGIC_TILES = new Set<TileId>(SEATS.flatMap((q) => QUADRANT_MAGIC.map(([r, c]) => rotateTile(tileId(r, c), q))));
+
 // ─── World-space positions (Three.js uses y-up; board lies on the xz plane) ───
 
 /** Height of the top face of a tile. */

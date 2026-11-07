@@ -11,13 +11,23 @@
  *  3. Resolve: walk the steps → if the landing tile holds a snake head or ladder
  *     foot, jump → if an opponent token sits on the final tile and it is not a
  *     Protego tile, it is blasted back to its base (Ludo takeover).
- *  4. Extra turn on a 6, a capture or a token reaching the summit.
- *  5. First player with both tokens on the summit wins.
+ *     A snake bite is blocked (and the shield used up) if the player holds a
+ *     Protego Charm.
+ *  4. Magic rune: if the token ends on a rune tile (and did not jump), a random
+ *     spell is cast — Felix Felicis (roll again), Portkey (+5), Confundo (−3) or
+ *     Protego Charm (shield vs the next snake). Takeover is checked after it.
+ *  5. Extra turn on a 6, a capture, Felix Felicis or a token reaching the summit.
+ *  6. First player with both tokens on the summit wins.
  */
 import {
   FINISH,
+  CONFUNDO_STEPS,
   JUMP_FROM,
   type Jump,
+  MAGIC_TILES,
+  PORTKEY_STEPS,
+  SPELLS,
+  type Spell,
   type Seat,
   type TileId,
   SAFE_TILES,
@@ -55,6 +65,8 @@ export interface GameState {
   /** Consecutive sixes rolled by the current player. */
   sixStreak: number;
   winner: Seat | null;
+  /** Protego Charm shields held, indexed by seat (0 or 1). */
+  shields: number[];
 }
 
 export interface Move {
@@ -70,6 +82,10 @@ export interface MoveOutcome {
   /** Snake or ladder triggered on landing, if any. */
   jump: Jump | null;
   finalProgress: number;
+  /** Spell cast by a magic rune, with the progress it moved the token to. */
+  spell: (Spell & { to: number }) | null;
+  /** Snake whose bite a Protego Charm blocked (the token stays on the head). */
+  blocked: Jump | null;
   /** Opponent tokens sent back to base (state before reset). */
   captured: TokenState[];
   finished: boolean;
@@ -78,7 +94,7 @@ export interface MoveOutcome {
   next: GameState;
 }
 
-export type LogTone = "info" | "six" | "ladder" | "snake" | "capture" | "finish" | "win" | "warn";
+export type LogTone = "info" | "six" | "ladder" | "snake" | "capture" | "finish" | "win" | "warn" | "magic" | "shield";
 export interface LogEntry {
   id: number;
   tone: LogTone;
@@ -102,7 +118,7 @@ export function createGame(players: PlayerConfig[]): GameState {
       progress: 0,
     })),
   );
-  return { players, tokens, turn: 0, sixStreak: 0, winner: null };
+  return { players, tokens, turn: 0, sixStreak: 0, winner: null, shields: [0, 0, 0, 0] };
 }
 
 export const currentPlayer = (s: GameState): PlayerConfig => s.players[s.turn];
@@ -127,10 +143,15 @@ export function legalMoves(state: GameState, seat: Seat, roll: number): Move[] {
 /** Third six in a row forfeits the turn. */
 export const isThirdSix = (state: GameState, roll: number): boolean => roll === 6 && state.sixStreak >= 2;
 
-export function resolveMove(state: GameState, move: Move, roll: number): MoveOutcome {
+/**
+ * @param rand random source for spells (injectable for tests).
+ * @param castSpells false = ignore runes (used by the AI to evaluate moves without luck).
+ */
+export function resolveMove(state: GameState, move: Move, roll: number, rand: () => number = Math.random, castSpells = true): MoveOutcome {
   const token = state.tokens.find((t) => t.id === move.tokenId);
   if (!token) throw new Error(`Unknown token ${move.tokenId}`);
   const seat = token.seat;
+  const shields = [...(state.shields ?? [0, 0, 0, 0])];
 
   // 1. Walk tile by tile (entering from base is a single step onto the start tile).
   const steps: TileId[] = [];
@@ -138,11 +159,29 @@ export function resolveMove(state: GameState, move: Move, roll: number): MoveOut
 
   // 2. Snake head / ladder foot on the landing tile (never on the summit tile).
   let finalProgress = move.to;
-  const jump = move.to < FINISH ? JUMP_FROM.get(tileAt(seat, move.to)) ?? null : null;
+  let jump = move.to < FINISH ? JUMP_FROM.get(tileAt(seat, move.to)) ?? null : null;
+  let blocked: Jump | null = null;
+  if (jump?.kind === "snake" && shields[seat] > 0) {
+    shields[seat] -= 1; // Protego Charm absorbs the bite
+    blocked = jump;
+    jump = null;
+  }
   if (jump) finalProgress = progressAt(seat, jump.to);
+
+  // 3. Magic rune (only when the token simply landed there).
+  let spell: MoveOutcome["spell"] = null;
+  if (castSpells && !jump && !blocked && finalProgress < FINISH && MAGIC_TILES.has(tileAt(seat, finalProgress))) {
+    const s = SPELLS[Math.min(SPELLS.length - 1, Math.floor(rand() * SPELLS.length))];
+    let to = finalProgress;
+    if (s.kind === "portkey") to = Math.min(FINISH - 1, finalProgress + PORTKEY_STEPS);
+    if (s.kind === "confundo") to = Math.max(1, finalProgress - CONFUNDO_STEPS);
+    if (s.kind === "protego") shields[seat] = 1;
+    spell = { ...s, to };
+    finalProgress = to;
+  }
   const finished = finalProgress === FINISH;
 
-  // 3. Ludo takeover on the final tile (Protego tiles and the summit are safe).
+  // 4. Ludo takeover on the final tile (Protego tiles and the summit are safe).
   const finalTile = tileAt(seat, finalProgress);
   const captured = finished || SAFE_TILES.has(finalTile)
     ? []
@@ -158,11 +197,13 @@ export function resolveMove(state: GameState, move: Move, roll: number): MoveOut
     move,
     steps,
     jump,
+    spell,
+    blocked,
     finalProgress,
     captured,
     finished,
-    extraTurn: !won && (roll === 6 || captured.length > 0 || finished),
-    next: { ...state, tokens, winner: won ? seat : state.winner },
+    extraTurn: !won && (roll === 6 || captured.length > 0 || finished || spell?.kind === "felix"),
+    next: { ...state, tokens, shields, winner: won ? seat : state.winner },
   };
 }
 
@@ -190,13 +231,15 @@ export function chooseAIMove(state: GameState, moves: Move[], roll: number): Mov
   let best = moves[0];
   let bestScore = -Infinity;
   for (const move of moves) {
-    const o = resolveMove(state, move, roll);
+    const o = resolveMove(state, move, roll, Math.random, false);
     const token = state.tokens.find((t) => t.id === move.tokenId)!;
     let score = o.finalProgress;
     if (o.finished) score += 1000;
     score += o.captured.reduce((acc, v) => acc + 400 + v.progress * 4, 0);
     if (o.jump?.kind === "ladder") score += 250;
     if (o.jump?.kind === "snake") score -= 300;
+    if (o.blocked) score += 40; // shield spent, but no slide
+    if (!o.jump && !o.finished && MAGIC_TILES.has(tileAt(token.seat, o.finalProgress))) score += 60; // runes are mostly good
     if (move.from === 0) score += 220;
     const fromTile = tokenTile(token);
     if (fromTile !== null && threatened(state, token.seat, fromTile)) score += 90; // flee danger
@@ -226,6 +269,17 @@ export function describeOutcome(state: GameState, o: MoveOutcome): Omit<LogEntry
       tone: "snake",
       text: `${who} got bitten by ${o.jump.name}! Slid down to rune ${runeNumber(o.jump.to)}.`,
     });
+  if (o.blocked)
+    lines.push({ tone: "shield", text: `Protego! ${who}'s charm blocks ${o.blocked.name}'s bite.` });
+  if (o.spell) {
+    const text: Record<string, string> = {
+      felix: `${who} drinks Felix Felicis — lucky! Roll again.`,
+      portkey: `${who} grabs a Portkey and is whisked to rune ${runeNumber(tileAt(token.seat, o.spell.to))}!`,
+      confundo: `Confundo! ${who} stumbles back to rune ${runeNumber(tileAt(token.seat, o.spell.to))}.`,
+      protego: `${who} learns a Protego Charm — the next snake bite will be blocked.`,
+    };
+    lines.push({ tone: "magic", text: text[o.spell.kind] });
+  }
   for (const v of o.captured)
     lines.push({
       tone: "capture",

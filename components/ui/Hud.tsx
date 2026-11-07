@@ -1,6 +1,6 @@
 "use client";
 /** In-game overlay: player roster, action bar, spell log, rules, victory banner. */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QUALITY_LABEL, type QualityMode } from "@/lib/quality";
 import { FINISH, LAP_LENGTH, runeNumber, tileAt } from "@/lib/board";
 import type { GameState, LogEntry, LogTone, Move } from "@/lib/rules";
@@ -16,6 +16,8 @@ const TONE_CLASS: Record<LogTone, string> = {
   finish: "text-emerald-200 font-semibold",
   win: "text-yellow-200 font-bold",
   warn: "text-amber-300/90",
+  magic: "text-yellow-200 font-semibold",
+  shield: "text-sky-300 font-semibold",
 };
 const TONE_ICON: Record<LogTone, string> = {
   info: "✦",
@@ -26,7 +28,41 @@ const TONE_ICON: Record<LogTone, string> = {
   finish: "♛",
   win: "🏆",
   warn: "!",
+  magic: "✧",
+  shield: "⛨",
 };
+
+/** Most dramatic tones first: the banner shows the biggest moment of the latest move. */
+const BANNER_TONES: LogTone[] = ["win", "finish", "capture", "snake", "shield", "magic", "ladder"];
+
+/** Big centred announcement for the dramatic moments of each move (works for the online guest too). */
+function EventBanner({ log }: { log: LogEntry[] }) {
+  const seen = useRef(log[0]?.id ?? 0);
+  const [shown, setShown] = useState<LogEntry | null>(null);
+  useEffect(() => {
+    const fresh = log.filter((e) => e.id > seen.current);
+    if (!fresh.length) return;
+    seen.current = log[0].id;
+    const pick = BANNER_TONES.map((t) => fresh.find((e) => e.tone === t)).find(Boolean);
+    if (!pick) return;
+    setShown(pick);
+    const id = window.setTimeout(() => setShown(null), 2600);
+    return () => window.clearTimeout(id);
+  }, [log]);
+  return (
+    <div aria-live="polite" className="pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4">
+      <p
+        key={shown?.id}
+        className={`max-w-xl rounded-2xl border border-white/10 bg-black/65 px-5 py-3 text-center font-display text-lg backdrop-blur-md transition-all duration-500 sm:text-2xl ${
+          shown ? "scale-100 opacity-100" : "scale-90 opacity-0"
+        } ${shown ? TONE_CLASS[shown.tone] : ""}`}
+      >
+        {shown && <span className="mr-2">{TONE_ICON[shown.tone]}</span>}
+        {shown?.text}
+      </p>
+    </div>
+  );
+}
 
 function progressLabel(p: number) {
   if (p === 0) return "Dungeon";
@@ -176,6 +212,13 @@ export function Hud(props: HudProps) {
             <li>Land on a rival (not on a ringed Protego tile) to blast them home.</li>
             <li>A 6, a capture or reaching the summit grants another roll. Three 6s in a row forfeits the turn.</li>
             <li>Exact roll needed for the summit. Both serpents up = victory.</li>
+            <li>
+              <span className="text-yellow-200">Golden runes ✧</span> cast a random spell: Felix Felicis (roll again), Portkey (+5),
+              Confundo (−3) or Protego Charm.
+            </li>
+            <li>
+              <span className="text-sky-300">Protego Charm ⛨</span> blocks the next snake bite.
+            </li>
           </ul>
         </aside>
       )}
@@ -192,6 +235,7 @@ export function Hud(props: HudProps) {
               style={{ borderColor: active ? th.color : "rgba(217,222,230,0.15)", boxShadow: active ? `0 0 14px ${th.color}88` : undefined }}
             >
               <Portrait character={p.character} color={th.color} size={26} />
+              {game.shields?.[p.seat] ? <span className="text-[11px] text-sky-300" title="Protego Charm">⛨</span> : null}
               <span className="text-[10px] leading-tight text-silver/80">
                 {game.tokens
                   .filter((t) => t.seat === p.seat)
@@ -219,6 +263,7 @@ export function Hud(props: HudProps) {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 font-display text-sm text-silver">
                     <span className="truncate">{p.name}</span>
+                    {game.shields?.[p.seat] ? <span className="text-sky-300" title="Protego Charm: blocks the next snake bite">⛨</span> : null}
                     <span className="rounded bg-white/10 px-1.5 text-[10px] uppercase tracking-wider text-silver/60">{p.isAI ? "AI" : p.owner === "guest" ? "Partner" : "Human"}</span>
                   </p>
                   <p className="text-[10px] uppercase tracking-widest" style={{ color: th.color }}>{th.house}</p>
@@ -252,6 +297,8 @@ export function Hud(props: HudProps) {
         {!winner && action}
         <p className="max-w-xs truncate text-center text-xs text-silver/60 md:hidden">{log[0]?.text}</p>
       </footer>
+
+      <EventBanner log={log} />
 
       {winner && (
         <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-sm">

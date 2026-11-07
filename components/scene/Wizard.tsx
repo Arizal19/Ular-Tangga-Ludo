@@ -39,6 +39,10 @@ const WAND = new THREE.CylinderGeometry(0.007, 0.012, 0.24, 8).translate(0, 0.12
 const WAND_TIP = new THREE.SphereGeometry(0.02, 10, 8);
 const HEAD = new THREE.SphereGeometry(0.072, 24, 18);
 const EYE = new THREE.SphereGeometry(0.009, 8, 6);
+const NOSE = new THREE.ConeGeometry(0.012, 0.03, 8).rotateX(Math.PI / 2);
+const BROW = new THREE.BoxGeometry(0.026, 0.006, 0.008);
+const BOOT = new THREE.SphereGeometry(0.045, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+const CLASP = new THREE.SphereGeometry(0.016, 10, 8);
 const HOOD = new THREE.SphereGeometry(0.095, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.62);
 const HAT = new THREE.ConeGeometry(0.1, 0.27, 24);
 const BRIM = new THREE.CylinderGeometry(0.165, 0.165, 0.012, 32);
@@ -66,6 +70,7 @@ export function Wizard({
   motion: MutableRefObject<WizardMotion>;
 }) {
   const torso = useRef<THREE.Group>(null);
+  const root = useRef<THREE.Group>(null);
   const head = useRef<THREE.Group>(null);
   const wandArm = useRef<THREE.Group>(null);
   const tip = useRef<THREE.MeshBasicMaterial>(null);
@@ -77,6 +82,12 @@ export function Wizard({
     const t = clock.elapsedTime + phase;
     const { moving, ready } = motion.current;
     if (torso.current) torso.current.scale.setScalar(1 + Math.sin(t * 2.1) * 0.012); // breathing
+    // Lean into the stride while moving; the cloak sways with it.
+    if (root.current) {
+      const lean = moving ? 0.16 + Math.sin(t * 14) * 0.03 : Math.sin(t * 1.3) * 0.015;
+      root.current.rotation.x += (lean - root.current.rotation.x) * Math.min(1, delta * 8);
+      root.current.rotation.z = moving ? Math.sin(t * 7) * 0.04 : 0;
+    }
     if (head.current) head.current.rotation.y = Math.sin(t * 0.7) * 0.35 * (moving ? 0.2 : 1); // glance around
     // Wand arm: rests low, rises to cast when this piece is in play.
     const want = moving || ready ? 1 : 0;
@@ -103,7 +114,14 @@ export function Wizard({
   );
 
   return (
-    <group position={[0, 0.1, 0]}>
+    <group ref={root} position={[0, 0.1, 0]}>
+      {/* Boot toes peeking out under the hem */}
+      {!simple &&
+        [-1, 1].map((sx) => (
+          <mesh key={sx} geometry={BOOT} position={[sx * 0.06, 0, 0.15]} scale={[0.9, 0.7, 1.3]} castShadow>
+            <meshStandardMaterial color="#1a1310" roughness={0.45} metalness={0.2} />
+          </mesh>
+        ))}
       <mesh geometry={CLOAK} castShadow>
         <meshStandardMaterial color={CLOTH} roughness={0.75} metalness={0.05} side={THREE.DoubleSide} />
       </mesh>
@@ -114,6 +132,9 @@ export function Wizard({
           </mesh>
           <mesh geometry={MANTLE} position={[0, 0.03, 0]} castShadow>
             <meshStandardMaterial color={CLOTH} roughness={0.75} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh geometry={CLASP} position={[0, 0.075, 0.07]}>
+            <meshStandardMaterial color="#cbd5e1" metalness={1} roughness={0.25} />
           </mesh>
           <mesh geometry={BELT} position={[0, -0.06, 0]} rotation={[Math.PI / 2, 0, 0]}>
             <meshStandardMaterial color={color} metalness={0.7} roughness={0.3} />
@@ -167,6 +188,14 @@ export function Wizard({
             <mesh geometry={EYE} position={[0.026, 0.012, 0.064]}>
               <meshBasicMaterial color="#111" />
             </mesh>
+            <mesh geometry={NOSE} position={[0, -0.006, 0.074]}>
+              <meshStandardMaterial color={SKIN} roughness={0.6} />
+            </mesh>
+            {[-1, 1].map((sx) => (
+              <mesh key={sx} geometry={BROW} position={[sx * 0.026, 0.03, 0.066]} rotation={[0, 0, sx * -0.15]}>
+                <meshBasicMaterial color="#2a1d14" />
+              </mesh>
+            ))}
           </>
         )}
         {headwear}

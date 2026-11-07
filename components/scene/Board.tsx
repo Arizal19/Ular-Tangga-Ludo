@@ -6,11 +6,12 @@
  */
 import { Edges, Line, RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BASE_CENTER,
+  MAGIC_TILES,
   GRID,
   type Seat,
   SEATS,
@@ -63,6 +64,24 @@ function drawTileFace(ctx: CanvasRenderingContext2D, id: TileId, ox: number, oy:
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, size * 0.36, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  // Magic rune: golden sigil ring with a star; the floating ring in MagicRunes marks it in 3D too.
+  if (MAGIC_TILES.has(id)) {
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = size * 0.03;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size * 0.38, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([size * 0.04, size * 0.03]);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size * 0.3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(251,191,36,0.95)";
+    ctx.font = `${Math.round(size * 0.16)}px Georgia, serif`;
+    ctx.textAlign = "center";
+    ctx.fillText("✧", size / 2, size * 0.2);
   }
 
   // Silver inset frame.
@@ -149,6 +168,31 @@ function Tiles({ cell: CELL }: { cell: number }) {
 
 const SIDE_MATERIAL = new THREE.MeshStandardMaterial({ color: "#1d3027", roughness: 0.5, metalness: 0.3 });
 
+/** Floating golden rings over the 16 magic runes: one instanced draw call, one pulsing material. */
+function MagicRunes() {
+  const tiles = useMemo(() => [...MAGIC_TILES], []);
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const mat = useRef<THREE.MeshBasicMaterial>(null);
+  useEffect(() => {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    tiles.forEach((t, i) => {
+      const [x, y, z] = tilePosition(t);
+      mesh.current?.setMatrixAt(i, m.compose(new THREE.Vector3(x, y + 0.06, z), q, new THREE.Vector3(1, 1, 1)));
+    });
+    if (mesh.current) mesh.current.instanceMatrix.needsUpdate = true;
+  }, [tiles]);
+  useFrame(({ clock }) => {
+    if (mat.current) mat.current.opacity = 0.35 + Math.sin(clock.elapsedTime * 2.4) * 0.2;
+  });
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, tiles.length]}>
+      <ringGeometry args={[0.3, 0.36, 40]} />
+      <meshBasicMaterial ref={mat} color="#fbbf24" toneMapped={false} transparent depthWrite={false} />
+    </instancedMesh>
+  );
+}
+
 /** Pulsing emerald rings over tiles a human player can move to. */
 export function TileHighlights({ tiles }: { tiles: TileId[] }) {
   const group = useRef<THREE.Group>(null);
@@ -232,6 +276,7 @@ export function Board({ activeSeats, currentSeat, atlasCell }: { activeSeats: Se
         <meshBasicMaterial color="#10b981" toneMapped={false} transparent opacity={0.5} />
       </mesh>
       <Tiles cell={atlasCell} />
+      <MagicRunes />
       {SEATS.map((s) => (
         <BaseZone key={s} seat={s} active={activeSeats.includes(s)} current={currentSeat === s} />
       ))}

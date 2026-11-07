@@ -17,6 +17,25 @@ import { Jumps } from "./Jumps";
 import { Token } from "./Token";
 
 const DIE_POSITION: Vec3 = [-8.4, 1.6, 0.6];
+/** Board shake state; set by token SFX events, read once per frame by <Quake>. */
+const QUAKE = { until: 0 };
+
+/** Shakes its children (the board, serpents and tokens) briefly; the camera stays steady for OrbitControls. */
+function Quake({ children }: { children: React.ReactNode }) {
+  const g = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (!g.current) return;
+    const left = QUAKE.until - performance.now();
+    if (left <= 0) {
+      g.current.position.set(0, 0, 0);
+      return;
+    }
+    const k = Math.min(1, left / 400) * 0.07;
+    g.current.position.set((Math.random() - 0.5) * k, (Math.random() - 0.5) * k * 0.5, (Math.random() - 0.5) * k);
+  });
+  return <group ref={g}>{children}</group>;
+}
+
 /** Tone-mapping exposure follows the graphics preset without remounting the canvas. */
 function Exposure({ value }: { value: number }) {
   const gl = useThree((s) => s.gl);
@@ -313,6 +332,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
       ))}
       <StoneTable />
 
+      <Quake>
       <Board activeSeats={activeSeats} currentSeat={current?.seat ?? null} atlasCell={profile.atlasCell} />
       <Jumps sparkle={profile.sparkle} />
       <TileHighlights tiles={highlightTiles} />
@@ -327,12 +347,17 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
           animation={animation?.tokenId === t.id ? animation : null}
           selectable={selectable.has(t.id)}
           onSelect={() => onSelectToken(t.id)}
-          onWaypointSfx={onSfx}
+          onWaypointSfx={(name) => {
+            // Snake bites and Confundo jolt the board a little (felt, not just heard).
+            if (name === "snake" || name === "fizzle") QUAKE.until = performance.now() + (name === "snake" ? 650 : 400);
+            onSfx(name);
+          }}
           onDone={onAnimationDone}
           detailed={quality !== "low"}
         />
       ))}
       </Suspense>
+      </Quake>
 
       <CrystalDie
         position={DIE_POSITION}
@@ -355,7 +380,7 @@ export function Scene({ game, phase, dice, moves, animation, onRoll, onSelectTok
         autoRotateSpeed={0.6}
       />
 
-      {profile.bloom && <BloomEffect strength={profile.bloomStrength} threshold={quality === "high" ? 0.95 : 0.9} />}
+      {profile.bloom && <BloomEffect strength={profile.bloomStrength} threshold={quality === "high" || quality === "medium" ? 0.95 : 0.9} />}
     </Canvas>
   );
 }

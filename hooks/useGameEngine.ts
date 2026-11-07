@@ -6,7 +6,7 @@
  *   setup → await-roll → rolling → (choosing) → moving → await-roll … → over
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FINISH, type Vec3, baseSlot, summitSlot, tilePosition } from "@/lib/board";
+import { FINISH, type Vec3, baseSlot, summitSlot, tileAt, tilePosition } from "@/lib/board";
 import { ladderPoints, samplePoints, snakeCurve } from "@/lib/geometry";
 import {
   type GameState,
@@ -77,6 +77,15 @@ function buildWaypoints(o: MoveOutcome, seat: PlayerConfig["seat"], tokenIndex: 
     const pts = samplePoints(snakeCurve(o.jump), 28);
     // SFX TRIGGER: Parseltongue hiss when the bite lands.
     pts.forEach((pos, i) => wps.push({ pos, duration: 0.045, mode: "glide", sfx: i === 0 ? "snake" : undefined }));
+  }
+  // SFX TRIGGER: Protego charm absorbs a snake bite — the token hops in place.
+  if (o.blocked) wps.push({ pos: tilePosition(o.blocked.from), duration: 0.35, mode: "hop", sfx: "fizzle" });
+  if (o.spell) {
+    const to = tilePosition(tileAt(seat, o.spell.to));
+    // SFX TRIGGER: rune spells. Portkey/Confundo move the token; Felix/Protego are a celebratory hop.
+    if (o.spell.kind === "portkey") wps.push({ pos: to, duration: 0.75, mode: "hop", sfx: "ladder" });
+    else if (o.spell.kind === "confundo") wps.push({ pos: to, duration: 0.55, mode: "hop", sfx: "fizzle" });
+    else wps.push({ pos: to, duration: 0.35, mode: "hop", sfx: o.spell.kind === "felix" ? "six" : "enter" });
   }
   if (o.finalProgress === FINISH) {
     // SFX TRIGGER: ascension bell as the token floats up to the crest.

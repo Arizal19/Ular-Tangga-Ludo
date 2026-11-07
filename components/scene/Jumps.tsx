@@ -76,6 +76,8 @@ function taperedTube(curve: THREE.Curve<THREE.Vector3>, segments: number, radius
   const ring = radial + 1;
   const tArr = new Float32Array(pos.count);
   const sideArr = new Float32Array(pos.count * 3);
+  const bellyArr = new Float32Array(pos.count);
+  const off = new THREE.Vector3();
   const v = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i <= segments; i++) {
@@ -86,6 +88,9 @@ function taperedTube(curve: THREE.Curve<THREE.Vector3>, segments: number, radius
     const scale = (1.05 - 0.78 * Math.pow(t, 1.3)) * (1 + 0.12 * Math.exp(-((t - 0.12) ** 2) / 0.004));
     for (let j = 0; j < ring; j++) {
       const idx = i * ring + j;
+      off.fromBufferAttribute(pos, idx).sub(center);
+      // Underside of the body (offset pointing down) gets the pale belly scutes.
+      bellyArr[idx] = THREE.MathUtils.smoothstep(-off.normalize().y, 0.25, 0.7);
       v.fromBufferAttribute(pos, idx).sub(center).multiplyScalar(scale).add(center);
       pos.setXYZ(idx, v.x, v.y, v.z);
       tArr[idx] = t;
@@ -94,20 +99,31 @@ function taperedTube(curve: THREE.Curve<THREE.Vector3>, segments: number, radius
   }
   geo.setAttribute("aT", new THREE.BufferAttribute(tArr, 1));
   geo.setAttribute("aSide", new THREE.BufferAttribute(sideArr, 3));
+  geo.setAttribute("aBelly", new THREE.BufferAttribute(bellyArr, 1));
   geo.computeVertexNormals();
   return geo;
 }
 
-/** Bends the body in a travelling S-wave; ends stay pinned to their tiles. */
+/** Bends the body in a travelling S-wave (ends stay pinned) and paints pale banded belly scutes underneath. */
 function addSlither(material: THREE.MeshStandardMaterial, phase: number) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = SLITHER_TIME;
     shader.uniforms.uPhase = { value: phase };
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute float aT;\nattribute vec3 aSide;\nuniform float uTime;\nuniform float uPhase;")
+      .replace(
+        "#include <common>",
+        "#include <common>\nattribute float aT;\nattribute vec3 aSide;\nattribute float aBelly;\nvarying float vBelly;\nvarying float vT;\nuniform float uTime;\nuniform float uPhase;",
+      )
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\nfloat env = sin(3.14159 * aT) * smoothstep(0.0, 0.2, aT);\ntransformed += aSide * sin(aT * 16.0 - uTime * 3.0 + uPhase) * 0.07 * env;",
+        "#include <begin_vertex>\nvBelly = aBelly;\nvT = aT;\nfloat env = sin(3.14159 * aT) * smoothstep(0.0, 0.2, aT);\ntransformed += aSide * sin(aT * 16.0 - uTime * 3.0 + uPhase) * 0.07 * env;",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vBelly;\nvarying float vT;")
+      .replace(
+        "#include <map_fragment>",
+        // Transverse belly plates: pale olive bands with darker seams between them.
+        "#include <map_fragment>\nfloat seam = smoothstep(0.0, 0.18, abs(fract(vT * 90.0) - 0.5));\nvec3 belly = vec3(0.55, 0.6, 0.33) * (0.7 + 0.3 * seam);\ndiffuseColor.rgb = mix(diffuseColor.rgb, belly, vBelly * 0.9);",
       );
   };
 }
@@ -178,6 +194,8 @@ function Serpents({ sparkle }: { sparkle: number }) {
       heads.push(place(headGeo, head, m4(0, 0.03, 0.17, 0, 0.72, 0.36, 0.9)));
       heads.push(place(headGeo, head, m4(0, -0.06, 0.14, 0.32, 0.68, 0.22, 0.9)));
       for (const s of [-1, 1]) {
+        heads.push(place(headGeo, head, m4(s * 0.11, 0.11, 0.08, 0, 0.3, 0.14, 0.42))); // brow ridge
+        heads.push(place(headGeo, head, m4(s * 0.03, 0.06, 0.32, 0, 0.06, 0.05, 0.06))); // nostril bump
         eyes.push(place(eyeGeo, head, m4(s * 0.12, 0.09, 0.1)));
         pupils.push(place(pupilGeo, head, m4(s * 0.142, 0.09, 0.125, 0, 1, 1, 1, s * 0.6)));
         fangs.push(place(fangGeo, head, m4(s * 0.06, -0.035, 0.27, Math.PI + 0.25)));
